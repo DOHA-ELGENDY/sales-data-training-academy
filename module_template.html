@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<!--
+  ============================================================
+  MODULE ACCORDION-ITEM TEMPLATE
+  ------------------------------------------------------------
+  Modules live INSIDE learning_path.html as accordion items.
+  To add a real module (e.g. Module 1):
+
+    1. Copy the <div class="level-card"> ... </div> block below.
+    2. Paste it into learning_path.html, replacing the matching
+       "locked" placeholder card (e.g. the M1 one).
+    3. Fill the section content. Keep the SAME section order:
+         Introduction · Why This Module · Business Context ·
+         Learning Objectives · Training Content · Practical Example ·
+         Tips · Common Mistakes · Assignment · What You'll Submit ·
+         How It Will Be Reviewed · Next Step
+       Remove any <h4> section a module doesn't need.
+    4. Point "Submit Assignment" at that module's assignment page
+       (e.g. assignment_M1.html — copy assignment_M0.html for it).
+    5. Give the header a unique aria-controls / id (body-mN).
+
+  Only ONE module is expanded at a time (handled by script.js).
+  This file is a REFERENCE — it is not linked in the app.
+  ============================================================
+-->
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Module Accordion-Item Template</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <main class="content">
+      <div class="levels">
+
+        <!-- ===== Copy this block for a new (unlocked) module ===== -->
+        <div class="level-card">
+          <div class="level-head" data-acc-toggle role="button" tabindex="0"
+               aria-expanded="false" aria-controls="body-mN">
+            <div class="level-badge">MN</div>
+            <div class="level-head-text">
+              <h3>Module N — Title</h3>
+            </div>
+            <div class="level-toggle" aria-hidden="true">▾</div>
+          </div>
+
+          <div class="level-body" id="body-mN">
+            <h4>Introduction</h4>
+            <p>مقدمة قصيرة عن الـ Module.</p>
+
+            <h4>Why This Module</h4>
+            <p>ليه الجزء ده مهم في شغل الـ Sales Data.</p>
+
+            <h4>Business Context</h4>
+            <p>موقف حقيقي من بيئة العمل.</p>
+
+            <h4>Learning Objectives</h4>
+            <ul><li>هدف 1</li><li>هدف 2</li></ul>
+
+            <h4>Training Content</h4>
+            <ul><li>نقطة محتوى 1</li><li>نقطة محتوى 2</li></ul>
+
+            <h4>Practical Example</h4>
+            <p>مثال عملي مطبّق.</p>
+
+            <h4>Tips &amp; Best Practices</h4>
+            <ul><li>نصيحة عملية.</li></ul>
+
+            <h4>Common Mistakes</h4>
+            <ul><li>خطأ شائع.</li></ul>
+
+            <h4>Assignment</h4>
+            <p>وصف التمرين العملي.</p>
+
+            <h4>What You'll Submit</h4>
+            <ul><li>الملف/الرابط المطلوب.</li></ul>
+
+            <h4>How It Will Be Reviewed</h4>
+            <p>معايير المراجعة (بدون توزيع درجات — ده للـ Manager فقط).</p>
+
+            <h4>Next Step</h4>
+            <p>إيه اللي بيحصل بعد إتمام الـ Module.</p>
+
+            <div class="page-actions">
+              <a class="btn btn-primary" href="assignment_MN.html">Submit Assignment →</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== A locked / coming-soon module (header only) ===== -->
+        <div class="level-card locked-module" aria-disabled="true">
+          <div class="level-head">
+            <div class="level-badge locked-badge">MN</div>
+            <div class="level-head-text"><h3>Module N — Title</h3></div>
+            <span class="pill locked-pill">🔒 Coming Soon</span>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+</body>
+</html>

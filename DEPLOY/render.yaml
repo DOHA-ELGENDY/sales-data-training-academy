@@ -1,0 +1,9 @@
+# Render Static Site configuration
+# Plain HTML/CSS/JavaScript — no build step. index.html is the entry page.
+# Deploy this DEPLOY folder as the site root.
+services:
+  - type: web
+    name: sales-data-learning-center
+    runtime: static
+    buildCommand: ""
+    staticPublishPath: .

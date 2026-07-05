@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Learning Center — Sales Division</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ============ TEAM SELECTION (Learning Center) ============ -->
+  <!-- Future: connect team selection to permissions / role-based access -->
+  <div class="entry">
+    <div class="entry-wrap">
+      <div class="entry-brand">
+        <div class="brand-logo">SD</div>
+        <div class="entry-brand-text">
+          <strong>Learning Center</strong>
+          <span>Sales Division</span>
+        </div>
+      </div>
+
+      <h1 class="entry-title">Learning Center</h1>
+      <p class="entry-sub">Select your team to open the correct training path.</p>
+
+      <div class="team-grid">
+        <!-- Sales Data Team — active -->
+        <div class="team-card reveal">
+          <div class="team-ico">📊</div>
+          <h3>Sales Data Team</h3>
+          <p>Training path for Sales Data, Reporting, CRM Operations and Data Analysis.</p>
+          <span class="team-status available">Status: Available</span>
+          <a class="btn btn-primary team-open" href="learning_path.html">Open Learning Path →</a>
+        </div>
+
+        <!-- Sales Team — coming soon -->
+        <div class="team-card is-soon reveal">
+          <div class="team-ico">🤝</div>
+          <h3>Sales Team</h3>
+          <p>Sales onboarding and sales skills training.</p>
+          <span class="team-status soon">Status: Coming Soon</span>
+          <button class="btn btn-ghost" disabled>Coming Soon</button>
+        </div>
+
+        <!-- Sales Accounting Team — coming soon -->
+        <div class="team-card is-soon reveal">
+          <div class="team-ico">🧾</div>
+          <h3>Sales Accounting Team</h3>
+          <p>Training path for Sales Accounting operations and payment follow-up.</p>
+          <span class="team-status soon">Status: Coming Soon</span>
+          <button class="btn btn-ghost" disabled>Coming Soon</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

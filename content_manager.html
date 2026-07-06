@@ -78,7 +78,7 @@
       <!-- Tabs (only Modules is active for now) -->
       <div class="cm-tabs reveal" role="tablist" aria-label="Content Manager sections">
         <button class="cm-tab active" data-tab="modules" role="tab" aria-selected="true">Modules</button>
-        <button class="cm-tab" disabled>Lessons / Content <span class="cm-soon">Soon</span></button>
+        <button class="cm-tab" data-tab="lessons" role="tab" aria-selected="false">Lessons / Content</button>
         <button class="cm-tab" disabled>Assignments <span class="cm-soon">Soon</span></button>
         <button class="cm-tab" disabled>Videos <span class="cm-soon">Soon</span></button>
         <button class="cm-tab" disabled>Settings <span class="cm-soon">Soon</span></button>
@@ -138,6 +138,55 @@
 
         <h3 class="cm-list-heading" id="mListHeading">Modules</h3>
         <div class="cm-list" id="moduleList"></div>
+
+      </section>
+
+      <!-- ===== LESSONS / CONTENT TAB ===== -->
+      <section id="tab-lessons" class="cm-tabpanel" hidden>
+
+        <form id="lessonForm" class="card">
+          <h3 class="cm-group-title">Add / Edit Lesson Content</h3>
+          <input type="hidden" id="lId" />
+          <div class="form-grid">
+            <div class="field">
+              <label for="lAcademy">Academy / Team</label>
+              <select id="lAcademy"></select>
+            </div>
+            <div class="field">
+              <label for="lModule">Module</label>
+              <select id="lModule"></select>
+            </div>
+            <div class="field">
+              <label for="lTitle">Lesson Title</label>
+              <input type="text" id="lTitle" placeholder="Understanding Sales Role" />
+            </div>
+            <div class="field">
+              <label for="lType">Content Type</label>
+              <select id="lType"></select>
+            </div>
+            <div class="field field-full">
+              <label for="lBody">Content Body</label>
+              <textarea id="lBody" class="cm-editor" rows="8"
+                placeholder="اكتب المحتوى هنا…&#10;# عنوان&#10;## عنوان فرعي&#10;- نقطة&#10;1. خطوة"></textarea>
+              <p class="cm-hint">استخدم <code># عنوان</code> · <code>## عنوان فرعي</code> · <code>- نقطة</code> · <code>1. خطوة</code></p>
+            </div>
+            <div class="field">
+              <label for="lStatus">Status</label>
+              <select id="lStatus">
+                <option value="Draft">Draft</option>
+                <option value="Published">Published</option>
+              </select>
+            </div>
+          </div>
+          <div class="cm-form-actions">
+            <button type="submit" class="btn btn-primary" id="lSaveBtn">Save Content</button>
+            <button type="button" class="btn btn-ghost" id="lClearBtn">Clear Form</button>
+            <span class="form-msg" id="lMsg" role="status" aria-live="polite"></span>
+          </div>
+        </form>
+
+        <h3 class="cm-list-heading" id="lListHeading">Content</h3>
+        <div class="cm-list" id="lessonList"></div>
 
       </section>
 

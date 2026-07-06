@@ -916,6 +916,7 @@ a.nav-item { color: #cdd8e6; }
 .cm-status.is-pub { background: #e7f6ee; color: var(--success); }
 .cm-status.is-draft { background: #fdf3e7; color: var(--warn); }
 .cm-status.is-locked { background: #eef1f6; color: var(--muted); }
+.cm-type { font-size: 12px; font-weight: 700; color: var(--primary); background: #eef2fb; padding: 4px 10px; border-radius: 99px; }
 .cm-card-title { font-size: 16px; margin-bottom: 2px; }
 .cm-card-sub { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
 .cm-card-meta { display: flex; gap: 14px; font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 6px; }

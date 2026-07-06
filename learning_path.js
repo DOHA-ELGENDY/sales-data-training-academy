@@ -83,10 +83,16 @@ function moduleCard(m) {
   ].filter(Boolean).join("");
   const resources = resItems ? `<h4>Resources</h4><ul>${resItems}</ul>` : "";
 
+  // Published lessons from Content Manager, rendered as sections by content type.
+  const lessonHtml = publishedLessonsForModule(m.id).map(l => `
+    <h4>${escHtml(l.contentType)}</h4>
+    ${l.lessonTitle ? `<p><strong>${escHtml(l.lessonTitle)}</strong></p>` : ""}
+    <div class="cm-rendered">${renderRichText(l.contentBody)}</div>`).join("");
+
   const content = m.content ? `<h4>Learning Content</h4><div class="cm-rendered">${renderRichText(m.content)}</div>` : "";
-  const hasDetail = content || assignment || resources;
+  const hasDetail = lessonHtml || content || assignment || resources;
   const body = hasDetail
-    ? `${content}${assignment}${resources}`
+    ? `${lessonHtml}${content}${assignment}${resources}`
     : `<p class="muted" style="font-size:14px">المحتوى التفصيلي هيتضاف قريبًا.</p>`;
 
   return `

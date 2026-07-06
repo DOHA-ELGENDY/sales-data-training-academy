@@ -70,6 +70,39 @@ function modulesForPath(teamKey) {
     .sort((a, b) => (parseFloat(a.moduleNumber) || 0) - (parseFloat(b.moduleNumber) || 0));
 }
 
+/* All modules for one academy (any status) — for Content Manager dropdowns. */
+function modulesByAcademy(academyKey) {
+  return loadContent()
+    .filter(m => m.academyKey === academyKey)
+    .sort((a, b) => (parseFloat(a.moduleNumber) || 0) - (parseFloat(b.moduleNumber) || 0));
+}
+
+/* ---------- Lessons / Content store ---------- */
+/* Content types, in the order they should appear inside a module. */
+const CONTENT_TYPES = [
+  "Introduction", "Business Context", "Training Content", "Practical Example",
+  "Common Mistakes", "Tips", "Knowledge Check", "Next Step"
+];
+
+const LESSONS_KEY = "sdta_lessons_v1";
+function loadLessons() {
+  try {
+    const raw = localStorage.getItem(LESSONS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* ignore corrupt storage */ }
+  return [];
+}
+function saveLessons(items) { localStorage.setItem(LESSONS_KEY, JSON.stringify(items)); }
+
+/* Published lessons for one module, ordered by content type. */
+function publishedLessonsForModule(moduleId) {
+  const order = {};
+  CONTENT_TYPES.forEach((t, i) => { order[t] = i; });
+  return loadLessons()
+    .filter(l => l.moduleId === moduleId && l.status === "Published")
+    .sort((a, b) => (order[a.contentType] ?? 99) - (order[b.contentType] ?? 99));
+}
+
 /* ---------- Shared helpers ---------- */
 function escHtml(s) {
   return String(s == null ? "" : s)

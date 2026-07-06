@@ -2,10 +2,8 @@
 <html lang="ar" dir="rtl">
 <!--
   Content Manager — front-end only (no backend / no auth yet).
-  Data is simulated with JS objects persisted in localStorage.
-  Future: this same interface manages multiple academies (Sales Data,
-  Sales, Sales Accounting, Coordinator, Team Leader, Manager) and will
-  be gated by manager permissions + connected to Google Sheets/DB.
+  Tabbed structure. For now only the "Modules" tab is implemented;
+  the rest are Coming Soon. Data is stored in localStorage (academies.js).
 -->
 <head>
   <meta charset="UTF-8" />
@@ -74,174 +72,76 @@
 
       <div class="page-head reveal">
         <h1>Content Manager</h1>
-        <p class="muted">أنشئ وعدّل محتوى الـ Modules من هنا — من غير ما تعدّل HTML. (نسخة أولية بدون Database)</p>
+        <p class="muted">أنشئ وعدّل محتوى الأكاديميات من هنا. (نسخة أولية بدون Database)</p>
       </div>
 
-      <!-- Toolbar: academy filter + add button -->
-      <div class="cm-toolbar reveal">
-        <div class="field cm-academy-field">
-          <label for="cmAcademyFilter">Academy</label>
-          <select id="cmAcademyFilter"></select>
-        </div>
-        <button class="btn btn-primary" id="cmAddBtn">+ Add Content</button>
+      <!-- Tabs (only Modules is active for now) -->
+      <div class="cm-tabs reveal" role="tablist" aria-label="Content Manager sections">
+        <button class="cm-tab active" data-tab="modules" role="tab" aria-selected="true">Modules</button>
+        <button class="cm-tab" disabled>Lessons / Content <span class="cm-soon">Soon</span></button>
+        <button class="cm-tab" disabled>Assignments <span class="cm-soon">Soon</span></button>
+        <button class="cm-tab" disabled>Resources <span class="cm-soon">Soon</span></button>
+        <button class="cm-tab" disabled>Settings <span class="cm-soon">Soon</span></button>
       </div>
 
-      <!-- Content list (cards injected by content_manager.js) -->
-      <div class="cm-list" id="cmList"></div>
+      <!-- ===== MODULES TAB ===== -->
+      <section id="tab-modules" class="cm-tabpanel reveal">
+
+        <form id="moduleForm" class="card">
+          <h3 class="cm-group-title">Create / Edit Module</h3>
+          <input type="hidden" id="mId" />
+          <div class="form-grid">
+            <div class="field">
+              <label for="mAcademy">Academy / Team</label>
+              <select id="mAcademy"></select>
+            </div>
+            <div class="field">
+              <label for="mNumber">Module Number</label>
+              <input type="text" id="mNumber" placeholder="0, 1, 2, 3" />
+            </div>
+            <div class="field">
+              <label for="mTitle">Module Title</label>
+              <input type="text" id="mTitle" placeholder="Entry Assessment" />
+            </div>
+            <div class="field field-full">
+              <label for="mDesc">Short Description</label>
+              <input type="text" id="mDesc" placeholder="جملة قصيرة توضح الموديول" />
+            </div>
+            <div class="field">
+              <label for="mTime">Estimated Time</label>
+              <input type="text" id="mTime" placeholder="30 min, 1 hour" />
+            </div>
+            <div class="field">
+              <label for="mDiff">Difficulty</label>
+              <select id="mDiff">
+                <option value="Foundation">Foundation</option>
+                <option value="Beginner">Beginner</option>
+                <option value="Intermediate">Intermediate</option>
+                <option value="Advanced">Advanced</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="mStatus">Status</label>
+              <select id="mStatus">
+                <option value="Draft">Draft</option>
+                <option value="Published">Published</option>
+                <option value="Locked">Locked</option>
+              </select>
+            </div>
+          </div>
+          <div class="cm-form-actions">
+            <button type="submit" class="btn btn-primary" id="mSaveBtn">Save Module</button>
+            <button type="button" class="btn btn-ghost" id="mResetBtn" hidden>Cancel Edit</button>
+            <span class="form-msg" id="mMsg" role="status" aria-live="polite"></span>
+          </div>
+        </form>
+
+        <h3 class="cm-list-heading" id="mListHeading">Modules</h3>
+        <div class="cm-list" id="moduleList"></div>
+
+      </section>
 
     </main>
-  </div>
-
-  <!-- ============================================================
-       SLIDE-OVER PANEL — Add / Edit content
-       ============================================================ -->
-  <div class="cm-overlay" id="cmOverlay"></div>
-  <aside class="cm-panel" id="cmPanel" aria-hidden="true" aria-label="Content editor">
-    <div class="cm-panel-head">
-      <h2 id="cmPanelTitle">Add Content</h2>
-      <button class="cm-close" id="cmCloseBtn" aria-label="Close">✕</button>
-    </div>
-
-    <form class="cm-panel-body" id="cmForm">
-      <input type="hidden" id="cmId" />
-
-      <!-- General Information -->
-      <div class="cm-group">
-        <h3 class="cm-group-title">General Information</h3>
-        <div class="form-grid">
-          <div class="field">
-            <label for="cmAcademy">Academy</label>
-            <select id="cmAcademy"></select>
-          </div>
-          <div class="field">
-            <label for="cmModuleNumber">Module Number</label>
-            <input type="text" id="cmModuleNumber" placeholder="e.g. 1" />
-          </div>
-          <div class="field">
-            <label for="cmModuleTitle">Module Title</label>
-            <input type="text" id="cmModuleTitle" placeholder="e.g. Excel Fundamentals" />
-          </div>
-          <div class="field">
-            <label for="cmLessonTitle">Lesson Title</label>
-            <input type="text" id="cmLessonTitle" placeholder="e.g. Sort & Filter" />
-          </div>
-          <div class="field">
-            <label for="cmStudyTime">Estimated Study Time</label>
-            <input type="text" id="cmStudyTime" placeholder="e.g. 45 min" />
-          </div>
-          <div class="field">
-            <label for="cmDifficulty">Difficulty</label>
-            <select id="cmDifficulty">
-              <option value="Easy">Easy</option>
-              <option value="Medium">Medium</option>
-              <option value="Hard">Hard</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="cmStatus">Status</label>
-            <select id="cmStatus">
-              <option value="Draft">Draft</option>
-              <option value="Published">Published</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <!-- Learning Content -->
-      <div class="cm-group">
-        <h3 class="cm-group-title">Learning Content</h3>
-        <!-- Faux rich-text toolbar. Later this whole block can be swapped
-             for a real WYSIWYG editor bound to #cmContent. -->
-        <div class="cm-faux-toolbar" role="toolbar" aria-label="Formatting">
-          <button type="button" data-fmt="# " title="Heading">H1</button>
-          <button type="button" data-fmt="## " title="Subheading">H2</button>
-          <button type="button" data-fmt="" title="Paragraph">¶</button>
-          <button type="button" data-fmt="- " title="Bullet list">• List</button>
-          <button type="button" data-fmt="1. " title="Numbered list">1. List</button>
-        </div>
-        <textarea id="cmContent" class="cm-editor" rows="10"
-          placeholder="اكتب المحتوى هنا…&#10;# عنوان رئيسي&#10;## عنوان فرعي&#10;- نقطة&#10;1. خطوة"></textarea>
-        <p class="cm-hint">استخدم <code># عنوان</code> · <code>## عنوان فرعي</code> · <code>- نقطة</code> · <code>1. خطوة</code></p>
-      </div>
-
-      <!-- Assignment -->
-      <div class="cm-group">
-        <h3 class="cm-group-title">Assignment</h3>
-        <div class="form-grid">
-          <div class="field field-full">
-            <label for="cmAsgTitle">Assignment Title</label>
-            <input type="text" id="cmAsgTitle" placeholder="e.g. Clean a raw Leads sheet" />
-          </div>
-          <div class="field field-full">
-            <label for="cmAsgObjective">Assignment Objective</label>
-            <textarea id="cmAsgObjective" rows="2"></textarea>
-          </div>
-          <div class="field field-full">
-            <label for="cmAsgInstructions">Instructions</label>
-            <textarea id="cmAsgInstructions" rows="3"></textarea>
-          </div>
-          <div class="field field-full">
-            <label for="cmAsgDeliverables">Deliverables</label>
-            <textarea id="cmAsgDeliverables" rows="2"></textarea>
-          </div>
-          <div class="field">
-            <label for="cmAsgTime">Estimated Time</label>
-            <input type="text" id="cmAsgTime" placeholder="e.g. 60 min" />
-          </div>
-          <div class="field">
-            <label for="cmAsgScore">Minimum Required Score</label>
-            <input type="text" id="cmAsgScore" placeholder="e.g. 70%" />
-          </div>
-          <div class="field field-full">
-            <label for="cmAsgFiles">Files Required</label>
-            <input type="text" id="cmAsgFiles" placeholder="e.g. Google Sheet + Word/PDF" />
-          </div>
-        </div>
-      </div>
-
-      <!-- Resources -->
-      <div class="cm-group">
-        <h3 class="cm-group-title">Resources</h3>
-        <div class="form-grid">
-          <div class="field">
-            <label for="cmResVideo">Video URL</label>
-            <input type="url" id="cmResVideo" placeholder="https://…" />
-          </div>
-          <div class="field">
-            <label for="cmResDrive">Google Drive URL</label>
-            <input type="url" id="cmResDrive" placeholder="https://drive.google.com/…" />
-          </div>
-          <div class="field">
-            <label for="cmResPdf">PDF URL</label>
-            <input type="url" id="cmResPdf" placeholder="https://…" />
-          </div>
-          <div class="field">
-            <label for="cmResLinks">Reference Links</label>
-            <textarea id="cmResLinks" rows="2" placeholder="رابط في كل سطر"></textarea>
-          </div>
-        </div>
-      </div>
-    </form>
-
-    <div class="cm-panel-foot">
-      <button class="btn btn-ghost" id="cmCancelBtn" type="button">Cancel</button>
-      <span class="spacer"></span>
-      <button class="btn btn-light cm-savedraft" id="cmSaveDraftBtn" type="button">Save Draft</button>
-      <button class="btn btn-primary" id="cmPublishBtn" type="button">Publish</button>
-    </div>
-  </aside>
-
-  <!-- ============================================================
-       PREVIEW MODAL
-       ============================================================ -->
-  <div class="cm-preview-overlay" id="cmPreviewOverlay">
-    <div class="cm-preview" id="cmPreview" role="dialog" aria-label="Preview">
-      <div class="cm-preview-head">
-        <span class="cm-preview-tag">Preview</span>
-        <button class="cm-close" id="cmPreviewClose" aria-label="Close">✕</button>
-      </div>
-      <div class="cm-preview-body" id="cmPreviewBody"></div>
-    </div>
   </div>
 
   <script src="academies.js"></script>

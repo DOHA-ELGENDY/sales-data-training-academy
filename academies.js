@@ -62,6 +62,14 @@ function publishedFor(teamKey) {
     .sort((a, b) => (parseFloat(a.moduleNumber) || 0) - (parseFloat(b.moduleNumber) || 0));
 }
 
+/* Modules shown in a Learning Path: Published + Locked (Draft is hidden),
+   sorted by module number. */
+function modulesForPath(teamKey) {
+  return loadContent()
+    .filter(m => m.academyKey === teamKey && m.status !== "Draft")
+    .sort((a, b) => (parseFloat(a.moduleNumber) || 0) - (parseFloat(b.moduleNumber) || 0));
+}
+
 /* ---------- Shared helpers ---------- */
 function escHtml(s) {
   return String(s == null ? "" : s)

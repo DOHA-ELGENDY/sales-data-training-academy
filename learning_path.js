@@ -34,9 +34,11 @@ document.addEventListener("DOMContentLoaded", () => {
     staticCards.forEach(c => c.remove());
   }
 
-  /* ---- Append this academy's Published modules from Content Manager ---- */
-  const modules = publishedFor(teamKey);
-  modules.forEach(m => container.insertAdjacentHTML("beforeend", moduleCard(m)));
+  /* ---- Append this academy's modules from Content Manager ----
+     Published → open module card · Locked → Coming Soon · Draft → hidden. */
+  const modules = modulesForPath(teamKey);
+  modules.forEach(m => container.insertAdjacentHTML("beforeend",
+    m.status === "Locked" ? lockedCard(m) : moduleCard(m)));
 
   /* ---- Empty state if nothing to show ---- */
   if (!container.querySelector(".level-card")) {
@@ -56,12 +58,13 @@ document.addEventListener("DOMContentLoaded", () => {
     setTimeout(() => el.classList.add("in"), 30 * i));
 });
 
-/* Build one accordion module card from a Content-Manager item. */
+/* Published module → open accordion card. */
 function moduleCard(m) {
   const bodyId = "body-cm-" + m.id;
+  const subtitle = m.shortDesc || m.lessonTitle || "";
   const chips = [
     m.studyTime ? `<span class="meta-chip">⏱ ${escHtml(m.studyTime)}</span>` : "",
-    m.difficulty ? `<span class="meta-chip ${String(m.difficulty).toLowerCase()}">📊 ${escHtml(m.difficulty)}</span>` : ""
+    m.difficulty ? `<span class="meta-chip">📊 ${escHtml(m.difficulty)}</span>` : ""
   ].join("");
 
   const assignment = (m.asgTitle || m.asgObjective || m.asgInstructions || m.asgDeliverables) ? `
@@ -69,12 +72,7 @@ function moduleCard(m) {
     ${m.asgTitle ? `<p><strong>${escHtml(m.asgTitle)}</strong></p>` : ""}
     ${m.asgObjective ? `<p><strong>Objective:</strong> ${escHtml(m.asgObjective)}</p>` : ""}
     ${m.asgInstructions ? `<p><strong>Instructions:</strong> ${escHtml(m.asgInstructions)}</p>` : ""}
-    ${m.asgDeliverables ? `<p><strong>Deliverables:</strong> ${escHtml(m.asgDeliverables)}</p>` : ""}
-    <div class="level-meta">
-      ${m.asgTime ? `<span class="pill time">⏱ ${escHtml(m.asgTime)}</span>` : ""}
-      ${m.asgScore ? `<span class="pill pass">Minimum Required Score: ${escHtml(m.asgScore)}</span>` : ""}
-      ${m.asgFiles ? `<span class="pill">Files: ${escHtml(m.asgFiles)}</span>` : ""}
-    </div>` : "";
+    ${m.asgDeliverables ? `<p><strong>Deliverables:</strong> ${escHtml(m.asgDeliverables)}</p>` : ""}` : "";
 
   const resItems = [
     m.resVideo ? `<li>🎬 <a href="${escHtml(m.resVideo)}" target="_blank" rel="noopener">Video</a></li>` : "",
@@ -85,6 +83,12 @@ function moduleCard(m) {
   ].filter(Boolean).join("");
   const resources = resItems ? `<h4>Resources</h4><ul>${resItems}</ul>` : "";
 
+  const content = m.content ? `<h4>Learning Content</h4><div class="cm-rendered">${renderRichText(m.content)}</div>` : "";
+  const hasDetail = content || assignment || resources;
+  const body = hasDetail
+    ? `${content}${assignment}${resources}`
+    : `<p class="muted" style="font-size:14px">المحتوى التفصيلي هيتضاف قريبًا.</p>`;
+
   return `
     <div class="level-card reveal">
       <div class="level-head" data-acc-toggle role="button" tabindex="0"
@@ -92,16 +96,29 @@ function moduleCard(m) {
         <div class="level-badge">M${escHtml(m.moduleNumber)}</div>
         <div class="level-head-text">
           <h3>Module ${escHtml(m.moduleNumber)} — ${escHtml(m.moduleTitle)}</h3>
-          ${m.lessonTitle ? `<p>${escHtml(m.lessonTitle)}</p>` : ""}
+          ${subtitle ? `<p>${escHtml(subtitle)}</p>` : ""}
         </div>
         <div class="level-toggle" aria-hidden="true">▾</div>
       </div>
       <div class="level-body" id="${bodyId}">
         ${chips ? `<div class="module-meta" style="margin-bottom:14px">${chips}</div>` : ""}
-        <h4>Learning Content</h4>
-        <div class="cm-rendered">${renderRichText(m.content)}</div>
-        ${assignment}
-        ${resources}
+        ${body}
+      </div>
+    </div>`;
+}
+
+/* Locked module → header-only "Coming Soon" card (not expandable). */
+function lockedCard(m) {
+  const subtitle = m.shortDesc || "";
+  return `
+    <div class="level-card locked-module reveal" aria-disabled="true">
+      <div class="level-head">
+        <div class="level-badge locked-badge">M${escHtml(m.moduleNumber)}</div>
+        <div class="level-head-text">
+          <h3>Module ${escHtml(m.moduleNumber)} — ${escHtml(m.moduleTitle)}</h3>
+          ${subtitle ? `<p>${escHtml(subtitle)}</p>` : ""}
+        </div>
+        <span class="pill locked-pill">🔒 Locked</span>
       </div>
     </div>`;
 }

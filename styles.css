@@ -917,6 +917,29 @@ a.nav-item { color: #cdd8e6; }
 .cm-status.is-draft { background: #fdf3e7; color: var(--warn); }
 .cm-status.is-locked { background: #eef1f6; color: var(--muted); }
 .cm-type { font-size: 12px; font-weight: 700; color: var(--primary); background: #eef2fb; padding: 4px 10px; border-radius: 99px; }
+
+/* ---- Lesson navigation inside a module (Learning Path) ---- */
+.lesson-view { display: grid; grid-template-columns: 240px 1fr; gap: 20px; margin-top: 6px; }
+.lesson-list { display: flex; flex-direction: column; gap: 8px; }
+.lesson-item {
+  display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
+  width: 100%; text-align: right; cursor: pointer; font-family: inherit;
+  background: #fbfcfe; border: 1px solid var(--border); border-radius: 10px;
+  padding: 11px 14px;
+  transition: background .18s var(--ease), border-color .18s, transform .12s;
+}
+.lesson-item:hover { background: #f4f7fd; }
+.lesson-item.active { border-color: #bcd0f7; background: #f2f7ff; }
+.lesson-item-num { font-size: 12px; font-weight: 700; color: var(--primary); }
+.lesson-item-title { font-size: 14px; font-weight: 500; color: var(--text); }
+.lesson-content { min-width: 0; }
+.lesson-panel { display: none; }
+.lesson-panel.active { display: block; animation: lessonFade .25s var(--ease); }
+@keyframes lessonFade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.lesson-title { font-size: 17px; margin-bottom: 10px; }
+
+@media (prefers-reduced-motion: reduce) { .lesson-panel.active { animation: none; } }
+@media (max-width: 640px) { .lesson-view { grid-template-columns: 1fr; } }
 .cm-card-title { font-size: 16px; margin-bottom: 2px; }
 .cm-card-sub { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
 .cm-card-meta { display: flex; gap: 14px; font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 6px; }

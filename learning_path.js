@@ -56,6 +56,18 @@ document.addEventListener("DOMContentLoaded", () => {
   // Entrance animation for any freshly added cards.
   container.querySelectorAll(".reveal:not(.in)").forEach((el, i) =>
     setTimeout(() => el.classList.add("in"), 30 * i));
+
+  // Lesson selection: show only the clicked lesson's content (scoped per module).
+  container.addEventListener("click", e => {
+    const item = e.target.closest(".lesson-item");
+    if (!item || !container.contains(item)) return;
+    const view = item.closest(".lesson-view");
+    if (!view) return;
+    const idx = item.dataset.lessonIndex;
+    view.querySelectorAll(".lesson-item").forEach(b => b.classList.toggle("active", b === item));
+    view.querySelectorAll(".lesson-panel").forEach(p =>
+      p.classList.toggle("active", p.dataset.lessonIndex === idx));
+  });
 });
 
 /* Published module → open accordion card. */
@@ -83,17 +95,18 @@ function moduleCard(m) {
   ].filter(Boolean).join("");
   const resources = resItems ? `<h4>Resources</h4><ul>${resItems}</ul>` : "";
 
-  // Published lessons from Content Manager, rendered as sections by content type.
-  const lessonHtml = publishedLessonsForModule(m.id).map(l => `
-    <h4>${escHtml(l.contentType)}</h4>
-    ${l.lessonTitle ? `<p><strong>${escHtml(l.lessonTitle)}</strong></p>` : ""}
-    <div class="cm-rendered">${renderRichText(l.contentBody)}</div>`).join("");
-
-  const content = m.content ? `<h4>Learning Content</h4><div class="cm-rendered">${renderRichText(m.content)}</div>` : "";
-  const hasDetail = lessonHtml || content || assignment || resources;
-  const body = hasDetail
-    ? `${lessonHtml}${content}${assignment}${resources}`
-    : `<p class="muted" style="font-size:14px">المحتوى التفصيلي هيتضاف قريبًا.</p>`;
+  // Published lessons → lesson list + single content panel (one lesson at a time).
+  const lessons = publishedLessonsForModule(m.id);
+  let body;
+  if (lessons.length) {
+    body = lessonView(lessons);
+  } else if (m.content || assignment || resources) {
+    // Backward-compat for any legacy module-level content.
+    const content = m.content ? `<h4>Learning Content</h4><div class="cm-rendered">${renderRichText(m.content)}</div>` : "";
+    body = `${content}${assignment}${resources}`;
+  } else {
+    body = `<p class="muted" style="font-size:14px">المحتوى التفصيلي هيتضاف قريبًا.</p>`;
+  }
 
   return `
     <div class="level-card reveal">
@@ -110,6 +123,28 @@ function moduleCard(m) {
         ${chips ? `<div class="module-meta" style="margin-bottom:14px">${chips}</div>` : ""}
         ${body}
       </div>
+    </div>`;
+}
+
+/* Lesson navigation for a module: a list of lessons + one visible content
+   panel. Only one lesson shows at a time; the first is active by default. */
+function lessonView(lessons) {
+  const list = lessons.map((l, i) => `
+    <button type="button" class="lesson-item${i === 0 ? " active" : ""}" data-lesson-index="${i}">
+      <span class="lesson-item-num">Lesson ${i + 1}</span>
+      <span class="lesson-item-title">${escHtml(l.lessonTitle || l.contentType)}</span>
+    </button>`).join("");
+
+  const panels = lessons.map((l, i) => `
+    <div class="lesson-panel${i === 0 ? " active" : ""}" data-lesson-index="${i}">
+      <h3 class="lesson-title">${escHtml(l.lessonTitle || l.contentType)}</h3>
+      <div class="cm-rendered">${renderRichText(l.contentBody)}</div>
+    </div>`).join("");
+
+  return `
+    <div class="lesson-view">
+      <div class="lesson-list" role="tablist" aria-label="Lessons">${list}</div>
+      <div class="lesson-content">${panels}</div>
     </div>`;
 }
 

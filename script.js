@@ -106,29 +106,33 @@ function initAccordion() {
   const container = document.getElementById("learningPath");
   if (!container) return;
 
-  container.querySelectorAll("[data-acc-toggle]").forEach(head => {
-    const toggle = () => {
-      const card = head.parentElement;
-      const willOpen = !card.classList.contains("open");
+  // Event delegation so both static and dynamically-rendered modules work.
+  function toggleFrom(head) {
+    const card = head.parentElement;
+    const willOpen = !card.classList.contains("open");
 
-      // Collapse every open module first (one open at a time).
-      container.querySelectorAll(".level-card.open").forEach(c => {
-        c.classList.remove("open");
-        const h = c.querySelector("[data-acc-toggle]");
-        if (h) h.setAttribute("aria-expanded", "false");
-      });
-
-      // Expand the clicked one (if it was closed).
-      if (willOpen) {
-        card.classList.add("open");
-        head.setAttribute("aria-expanded", "true");
-      }
-    };
-
-    head.addEventListener("click", toggle);
-    head.addEventListener("keydown", e => {
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+    // Collapse every open module first (one open at a time).
+    container.querySelectorAll(".level-card.open").forEach(c => {
+      c.classList.remove("open");
+      const h = c.querySelector("[data-acc-toggle]");
+      if (h) h.setAttribute("aria-expanded", "false");
     });
+
+    // Expand the clicked one (if it was closed).
+    if (willOpen) {
+      card.classList.add("open");
+      head.setAttribute("aria-expanded", "true");
+    }
+  }
+
+  container.addEventListener("click", e => {
+    const head = e.target.closest("[data-acc-toggle]");
+    if (head && container.contains(head)) toggleFrom(head);
+  });
+  container.addEventListener("keydown", e => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const head = e.target.closest("[data-acc-toggle]");
+    if (head && container.contains(head)) { e.preventDefault(); toggleFrom(head); }
   });
 }
 

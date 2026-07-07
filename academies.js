@@ -132,16 +132,35 @@ function normLesson(l) {
   };
 }
 
-/* Pull all content from the Sheet into the local cache. Returns true on success. */
+/* JSONP GET — reads cross-origin via a <script> tag, so it works from the
+   live Render site with NO CORS setup on Apps Script. */
+function jsonp(action) {
+  return new Promise((resolve, reject) => {
+    if (!CONTENT_API_URL) { reject(new Error("no-url")); return; }
+    const cb = "__cmcb_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    const script = document.createElement("script");
+    let done = false;
+    const cleanup = () => {
+      try { delete window[cb]; } catch (e) { window[cb] = undefined; }
+      if (script.parentNode) script.parentNode.removeChild(script);
+    };
+    window[cb] = (data) => { done = true; cleanup(); resolve(data); };
+    script.onerror = () => { if (!done) { cleanup(); reject(new Error("jsonp-error")); } };
+    script.src = CONTENT_API_URL + "?action=" + encodeURIComponent(action) + "&callback=" + cb;
+    document.head.appendChild(script);
+    setTimeout(() => { if (!done) { cleanup(); reject(new Error("jsonp-timeout")); } }, 15000);
+  });
+}
+
+/* Pull modules + lessons from the Sheet into the local cache. Returns true on success. */
 async function syncContentFromServer() {
   if (!CONTENT_API_URL) return false;
   try {
-    const res = await fetch(CONTENT_API_URL + "?action=content", { method: "GET" });
-    const data = await res.json();
-    if (data && data.result === "success") {
+    const [mRes, lRes] = await Promise.all([jsonp("getModules"), jsonp("getLessons")]);
+    if (mRes && mRes.result === "success" && lRes && lRes.result === "success") {
       remoteContentReady = true;
-      saveContent((data.modules || []).map(normModule));
-      saveLessons((data.lessons || []).map(normLesson));
+      saveContent((mRes.modules || []).map(normModule));
+      saveLessons((lRes.lessons || []).map(normLesson));
       return true;
     }
   } catch (err) {
@@ -151,9 +170,12 @@ async function syncContentFromServer() {
 }
 
 /* Fire a write to the Sheet (no-cors: the request is processed even though
-   we can't read the opaque response; callers re-sync to confirm). */
+   we can't read the opaque response; callers re-sync to confirm). Writes only
+   go out once a read has proven the content backend is deployed. */
 async function postContent(payload) {
-  if (!CONTENT_API_URL || !remoteContentReady) return false;
+  if (!CONTENT_API_URL) return false;
+  if (!remoteContentReady) { await syncContentFromServer(); }
+  if (!remoteContentReady) return false;
   try {
     await fetch(CONTENT_API_URL, {
       method: "POST",
@@ -167,10 +189,10 @@ async function postContent(payload) {
     return false;
   }
 }
-function pushModule(item) { return postContent({ type: "module", item }); }
-function pushLesson(item) { return postContent({ type: "lesson", item }); }
-function deleteModuleRemote(id) { return postContent({ type: "deleteModule", id }); }
-function deleteLessonRemote(id) { return postContent({ type: "deleteLesson", id }); }
+function pushModule(item) { return postContent({ action: "saveModule", item }); }
+function pushLesson(item) { return postContent({ action: "saveLesson", item }); }
+function deleteModuleRemote(id) { return postContent({ action: "deleteModule", id }); }
+function deleteLessonRemote(id) { return postContent({ action: "deleteLesson", id }); }
 
 /* ---------- Shared helpers ---------- */
 function escHtml(s) {

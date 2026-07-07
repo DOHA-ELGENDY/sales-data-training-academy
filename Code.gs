@@ -38,20 +38,41 @@ var ACADEMY_SEED = [
    ENDPOINTS
    ============================================================ */
 function doGet(e) {
+  var p = (e && e.parameter) || {};
+  var action = p.action || "";
+  var payload;
   try {
-    var action = (e && e.parameter && e.parameter.action) || "";
-    if (action === "content") {
-      return json_({
+    if (action === "getAcademies") {
+      payload = { result: "success", academies: readSheet_("Academies", ACADEMY_HEADERS, ACADEMY_SEED) };
+    } else if (action === "getModules") {
+      payload = { result: "success", modules: readSheet_("Modules", MODULE_HEADERS) };
+    } else if (action === "getLessons") {
+      payload = { result: "success", lessons: readSheet_("Lessons", LESSON_HEADERS) };
+    } else if (action === "getContent" || action === "content") {
+      payload = {
         result: "success",
         academies: readSheet_("Academies", ACADEMY_HEADERS, ACADEMY_SEED),
         modules: readSheet_("Modules", MODULE_HEADERS),
         lessons: readSheet_("Lessons", LESSON_HEADERS)
-      });
+      };
+    } else {
+      payload = { result: "ready" };
     }
-    return json_({ result: "ready" });
   } catch (err) {
-    return json_({ result: "error", message: String(err) });
+    payload = { result: "error", message: String(err) };
   }
+  return respond_(payload, p.callback);
+}
+
+/** JSONP-aware response: wraps in callback(...) when a callback is provided
+    (lets the browser read cross-origin via a <script> tag — no CORS needed). */
+function respond_(payload, callback) {
+  var out = JSON.stringify(payload);
+  if (callback) {
+    return ContentService.createTextOutput(callback + "(" + out + ")")
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+  return ContentService.createTextOutput(out).setMimeType(ContentService.MimeType.JSON);
 }
 
 function doPost(e) {
@@ -63,10 +84,13 @@ function doPost(e) {
     try { data = JSON.parse(e.postData.contents); }
     catch (parseErr) { return json_({ result: "error", message: "Invalid JSON body." }); }
 
-    switch (data.type) {
+    var action = data.action || data.type || "";
+    switch (action) {
+      case "saveModule":
       case "module":
         upsertRow_("Modules", MODULE_HEADERS, data.item);
         return json_({ result: "success" });
+      case "saveLesson":
       case "lesson":
         upsertRow_("Lessons", LESSON_HEADERS, data.item);
         return json_({ result: "success" });
@@ -78,7 +102,7 @@ function doPost(e) {
         deleteRow_("Lessons", LESSON_HEADERS, "id", data.id);
         return json_({ result: "success" });
       default:
-        return handleSubmission_(data); // no type → assignment submission
+        return handleSubmission_(data); // no action → assignment submission
     }
   } catch (err) {
     return json_({ result: "error", message: String(err) });

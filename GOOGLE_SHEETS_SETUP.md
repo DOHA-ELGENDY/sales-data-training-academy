@@ -1,4 +1,48 @@
-# Connect the Submission Form to Google Sheets
+# Google Sheets Backend
+
+The same **Apps Script Web App** now does two things from **one URL**:
+1. **Assignment submissions** → `Submissions` tab (unchanged).
+2. **Content** (Academies / Modules / Lessons) → so Content Manager data is
+   shared across all devices and the live Render site.
+
+---
+
+## Content backend (v2) — how to enable
+
+The updated `Code.gs` in this project handles content. To turn it on:
+
+1. Open your Sheet → **Extensions → Apps Script**.
+2. Select all, delete, and paste the **entire** updated `Code.gs` from this project. **Save**.
+3. **Deploy → Manage deployments → ✏️ Edit (existing deployment) → Version: New version → Deploy.**
+   The **Web App URL stays the same** — no front-end change needed (it's already set in `academies.js`).
+4. Done. The script **auto-creates** these tabs on first use:
+
+**Academies** (auto-seeded with the 3 teams): `key · name · team · icon · order`
+**Modules**: `id · academyKey · moduleNumber · moduleTitle · shortDesc · studyTime · difficulty · status · updatedAt`
+**Lessons**: `id · academyKey · moduleId · moduleNumber · lessonTitle · contentType · contentBody · status · updatedAt`
+
+### Endpoints
+- `GET  ?action=content` → `{ result:"success", academies, modules, lessons }`
+- `GET` (no action) → `{ result:"ready" }` (health check)
+- `POST {type:"module", item:{…}}` → upsert a module
+- `POST {type:"lesson", item:{…}}` → upsert a lesson
+- `POST {type:"deleteModule", id}` / `{type:"deleteLesson", id}` → delete
+- `POST {employeeName, assignmentId, …}` (no `type`) → assignment submission (unchanged)
+
+### How the front-end uses it
+- On load, Content Manager and Learning Path **GET** all content and cache it in
+  `localStorage`. Rendering is instant from cache, then refreshes from the Sheet.
+- On save/delete/publish, Content Manager **POSTs** the change, then re-syncs.
+- **Safety:** writes only go to the Sheet after a successful read proves the new
+  `Code.gs` is deployed — so nothing pollutes `Submissions` on the old version.
+- If the Sheet is unreachable, everything falls back to `localStorage` (demo mode).
+
+> **Verify after deploy:** open `<your /exec URL>?action=content` in a browser —
+> it should return JSON with `"result":"success"` and an `academies` array.
+
+---
+
+# (Original) Connect the Submission Form to Google Sheets
 
 This connects the Assignments form to a Google Sheet using a **Google Apps Script Web App**.
 No servers, no cost. Follow the 5 steps in order — takes about 10 minutes.

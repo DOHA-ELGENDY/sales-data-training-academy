@@ -1,157 +1,179 @@
 /**
- * Sales Data Team — Training Portal
- * Data Layer v1.0 — Google Apps Script Web App
+ * Sales Data Training Academy — Apps Script Web App (Data Layer v2.0)
  *
- * Receives Assignment submissions from the portal form and appends
- * them as rows in the bound Google Sheet.
+ * One Web App, two jobs:
+ *   1) Assignment submissions  → appended to the "Submissions" tab
+ *      (POST body has NO "type" field — backward compatible with the form).
+ *   2) Content management       → Academies / Modules / Lessons tabs
+ *      (POST body has a "type" field: module | lesson | deleteModule | deleteLesson).
  *
- * Design notes (for future growth):
- *  - HEADERS is the single source of truth for the column layout.
- *    Add a new column by adding it to HEADERS and (if the form should
- *    populate it) mapping it in buildRow_(). Nothing else needs to change.
- *  - Review columns (Score, Manager Feedback, Reviewed By, Reviewed At)
- *    are written empty on submission and filled later by a manager.
+ * READ:  GET  ?action=content   → { result:"success", academies, modules, lessons }
+ *        GET  (no action)        → { result:"ready" }  (health check)
  *
- * Setup / deployment: see GOOGLE_SHEETS_SETUP.md
+ * Deploy: Extensions → Apps Script → paste → Deploy → Manage deployments →
+ *         edit the existing deployment → New version → Deploy (URL stays the same).
  */
 
 /* ============================================================
-   CONFIG
+   SHEET LAYOUTS (single source of truth)
    ============================================================ */
+var SUBMISSIONS_SHEET = "Submissions";
+var SUBMISSION_HEADERS = [
+  "Timestamp", "Employee Name", "Assignment ID", "Submission Link", "Notes",
+  "Status", "Score", "Manager Feedback", "Reviewed By", "Reviewed At"
+];
+var SUBMISSION_DEFAULT_STATUS = "Pending Review";
 
-// Tab (sheet) where submissions are stored.
-var SHEET_NAME = "Submissions";
+var ACADEMY_HEADERS = ["key", "name", "team", "icon", "order"];
+var MODULE_HEADERS  = ["id", "academyKey", "moduleNumber", "moduleTitle", "shortDesc", "studyTime", "difficulty", "status", "updatedAt"];
+var LESSON_HEADERS  = ["id", "academyKey", "moduleId", "moduleNumber", "lessonTitle", "contentType", "contentBody", "status", "updatedAt"];
 
-// Column layout — the single source of truth (A → J).
-// To add a column later, append it here (and map it in buildRow_ if needed).
-var HEADERS = [
-  "Timestamp",         // A
-  "Employee Name",     // B
-  "Assignment ID",     // C
-  "Submission Link",   // D
-  "Notes",             // E
-  "Status",            // F
-  "Score",             // G  (review field — filled later)
-  "Manager Feedback",  // H  (review field — filled later)
-  "Reviewed By",       // I  (review field — filled later)
-  "Reviewed At"        // J  (review field — filled later)
+var ACADEMY_SEED = [
+  ["sales-data", "Sales Data", "Sales Data Team", "📊", 1],
+  ["sales", "Sales", "Sales Team", "🤝", 2],
+  ["sales-accounting", "Sales Accounting", "Sales Accounting Team", "🧾", 3]
 ];
 
-// Default status applied to every new submission.
-var DEFAULT_STATUS = "Pending Review";
-
 /* ============================================================
-   WEB APP ENDPOINTS
+   ENDPOINTS
    ============================================================ */
-
-/**
- * Handles POST requests from the portal's submission form.
- * Expects a JSON body: { employeeName, assignmentId, submissionLink, notes }
- * Appends one row and returns a JSON result.
- */
-function doPost(e) {
+function doGet(e) {
   try {
-    // --- Validate the request envelope ---
-    if (!e || !e.postData || !e.postData.contents) {
-      return json_({ result: "error", message: "No request body received." });
-    }
-
-    // --- Parse the JSON body ---
-    var data;
-    try {
-      data = JSON.parse(e.postData.contents);
-    } catch (parseErr) {
-      return json_({ result: "error", message: "Invalid JSON body." });
-    }
-
-    // --- Validate required fields ---
-    var employeeName = (data.employeeName || "").toString().trim();
-    var assignmentId = (data.assignmentId || "").toString().trim();
-
-    if (!employeeName || !assignmentId) {
+    var action = (e && e.parameter && e.parameter.action) || "";
+    if (action === "content") {
       return json_({
-        result: "error",
-        message: "Missing required fields: employeeName and assignmentId."
+        result: "success",
+        academies: readSheet_("Academies", ACADEMY_HEADERS, ACADEMY_SEED),
+        modules: readSheet_("Modules", MODULE_HEADERS),
+        lessons: readSheet_("Lessons", LESSON_HEADERS)
       });
     }
-
-    // --- Append the row ---
-    var sheet = getSheet_();
-    sheet.appendRow(buildRow_(data, employeeName, assignmentId));
-
-    return json_({ result: "success", status: DEFAULT_STATUS });
-
+    return json_({ result: "ready" });
   } catch (err) {
-    // Any unexpected failure is reported, never thrown to the client.
     return json_({ result: "error", message: String(err) });
   }
 }
 
-/**
- * Health check. Open the Web App URL in a browser to confirm it's live.
- * Returns: { "result": "ready" }
- */
-function doGet() {
-  return json_({ result: "ready" });
+function doPost(e) {
+  try {
+    if (!e || !e.postData || !e.postData.contents) {
+      return json_({ result: "error", message: "No request body received." });
+    }
+    var data;
+    try { data = JSON.parse(e.postData.contents); }
+    catch (parseErr) { return json_({ result: "error", message: "Invalid JSON body." }); }
+
+    switch (data.type) {
+      case "module":
+        upsertRow_("Modules", MODULE_HEADERS, data.item);
+        return json_({ result: "success" });
+      case "lesson":
+        upsertRow_("Lessons", LESSON_HEADERS, data.item);
+        return json_({ result: "success" });
+      case "deleteModule":
+        deleteRow_("Modules", MODULE_HEADERS, "id", data.id);
+        deleteWhere_("Lessons", LESSON_HEADERS, "moduleId", data.id); // cascade
+        return json_({ result: "success" });
+      case "deleteLesson":
+        deleteRow_("Lessons", LESSON_HEADERS, "id", data.id);
+        return json_({ result: "success" });
+      default:
+        return handleSubmission_(data); // no type → assignment submission
+    }
+  } catch (err) {
+    return json_({ result: "error", message: String(err) });
+  }
 }
 
 /* ============================================================
-   HELPERS
+   ASSIGNMENT SUBMISSION (unchanged behavior)
    ============================================================ */
+function handleSubmission_(data) {
+  var employeeName = (data.employeeName || "").toString().trim();
+  var assignmentId = (data.assignmentId || "").toString().trim();
+  if (!employeeName || !assignmentId) {
+    return json_({ result: "error", message: "Missing required fields: employeeName and assignmentId." });
+  }
+  var sheet = ensureSheet_(SUBMISSIONS_SHEET, SUBMISSION_HEADERS);
+  sheet.appendRow([
+    new Date(), employeeName, assignmentId,
+    (data.submissionLink || "").toString().trim(),
+    (data.notes || "").toString().trim(),
+    SUBMISSION_DEFAULT_STATUS, "", "", "", ""
+  ]);
+  return json_({ result: "success", status: SUBMISSION_DEFAULT_STATUS });
+}
 
-/**
- * Returns the Submissions sheet, creating it (with headers) if missing.
- * Idempotently ensures the header row is correct, bold, and frozen — so
- * an older/short sheet is safely upgraded to the current HEADERS layout.
- */
-function getSheet_() {
+/* ============================================================
+   GENERIC SHEET HELPERS
+   ============================================================ */
+function ensureSheet_(name, headers, seedRows) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(SHEET_NAME) || ss.insertSheet(SHEET_NAME);
-  ensureHeaders_(sheet);
+  var sheet = ss.getSheetByName(name) || ss.insertSheet(name);
+  var range = sheet.getRange(1, 1, 1, headers.length);
+  var current = range.getValues()[0];
+  var matches = true;
+  for (var i = 0; i < headers.length; i++) {
+    if (current[i] !== headers[i]) { matches = false; break; }
+  }
+  if (!matches) { range.setValues([headers]).setFontWeight("bold"); }
+  sheet.setFrozenRows(1);
+
+  // Seed default rows only when the sheet has just headers (no data).
+  if (seedRows && seedRows.length && sheet.getLastRow() < 2) {
+    sheet.getRange(2, 1, seedRows.length, headers.length).setValues(seedRows);
+  }
   return sheet;
 }
 
-/**
- * Writes the header row if it's missing or out of date, then makes it
- * bold and freezes the first row. Safe to run on every request.
- */
-function ensureHeaders_(sheet) {
-  var range = sheet.getRange(1, 1, 1, HEADERS.length);
-  var current = range.getValues()[0];
-
-  var matches = true;
-  for (var i = 0; i < HEADERS.length; i++) {
-    if (current[i] !== HEADERS[i]) { matches = false; break; }
+/** Reads a sheet into an array of plain objects keyed by header. */
+function readSheet_(name, headers, seedRows) {
+  var sheet = ensureSheet_(name, headers, seedRows);
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 2) return [];
+  var head = values[0];
+  var out = [];
+  for (var r = 1; r < values.length; r++) {
+    var obj = {};
+    var empty = true;
+    for (var c = 0; c < head.length; c++) {
+      obj[head[c]] = values[r][c];
+      if (values[r][c] !== "" && values[r][c] !== null) empty = false;
+    }
+    if (!empty) out.push(obj);
   }
-
-  if (!matches) {
-    range.setValues([HEADERS]).setFontWeight("bold");
-  }
-  sheet.setFrozenRows(1);
+  return out;
 }
 
-/**
- * Builds a single row aligned to HEADERS.
- * Submission fills A–F; review fields G–J start empty.
- */
-function buildRow_(data, employeeName, assignmentId) {
-  return [
-    new Date(),                                    // A Timestamp
-    employeeName,                                  // B Employee Name
-    assignmentId,                                  // C Assignment ID
-    (data.submissionLink || "").toString().trim(), // D Submission Link
-    (data.notes || "").toString().trim(),          // E Notes
-    DEFAULT_STATUS,                                // F Status
-    "",                                            // G Score
-    "",                                            // H Manager Feedback
-    "",                                            // I Reviewed By
-    ""                                             // J Reviewed At
-  ];
+/** Insert or update a row matched by "id". */
+function upsertRow_(name, headers, item) {
+  var sheet = ensureSheet_(name, headers);
+  var values = sheet.getDataRange().getValues();
+  var head = values[0];
+  var idCol = head.indexOf("id");
+  var row = headers.map(function (h) { return item[h] !== undefined && item[h] !== null ? item[h] : ""; });
+
+  for (var r = 1; r < values.length; r++) {
+    if (String(values[r][idCol]) === String(item.id)) {
+      sheet.getRange(r + 1, 1, 1, headers.length).setValues([row]);
+      return;
+    }
+  }
+  sheet.appendRow(row);
 }
 
-/**
- * Serializes an object to a JSON web-app response.
- */
+/** Delete row(s) where column == value. */
+function deleteWhere_(name, headers, col, value) {
+  var sheet = ensureSheet_(name, headers);
+  var values = sheet.getDataRange().getValues();
+  var head = values[0];
+  var colIdx = head.indexOf(col);
+  for (var r = values.length - 1; r >= 1; r--) {
+    if (String(values[r][colIdx]) === String(value)) sheet.deleteRow(r + 1);
+  }
+}
+function deleteRow_(name, headers, col, value) { deleteWhere_(name, headers, col, value); }
+
 function json_(obj) {
   return ContentService
     .createTextOutput(JSON.stringify(obj))

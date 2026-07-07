@@ -29,33 +29,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* ---- Static content belongs to Sales Data only ---- */
   // The only .level-card elements present at load are the static ones.
-  const staticCards = Array.from(container.querySelectorAll(".level-card"));
   if (teamKey !== "sales-data") {
-    staticCards.forEach(c => c.remove());
+    container.querySelectorAll(".level-card").forEach(c => c.remove());
   }
 
-  /* ---- Append this academy's modules from Content Manager ----
-     Published → open module card · Locked → Coming Soon · Draft → hidden. */
-  const modules = modulesForPath(teamKey);
-  modules.forEach(m => container.insertAdjacentHTML("beforeend",
-    m.status === "Locked" ? lockedCard(m) : moduleCard(m)));
-
-  /* ---- Empty state if nothing to show ---- */
-  if (!container.querySelector(".level-card")) {
-    const sub = document.querySelector(".page-head .muted");
-    if (sub) sub.textContent = `${ac.name} — لسه مفيش Modules منشورة.`;
-    container.insertAdjacentHTML("beforeend", `
-      <div class="cm-empty">
-        <div class="cm-empty-ico">🗂️</div>
-        <h3>No content yet</h3>
-        <p class="muted">No content has been added for this team yet.</p>
-        <p class="muted">${escHtml(ac.name)} — المحتوى هيظهر هنا تلقائيًا بمجرد إضافته ونشره من <strong>Content Manager</strong>.</p>
-      </div>`);
-  }
-
-  // Entrance animation for any freshly added cards.
-  container.querySelectorAll(".reveal:not(.in)").forEach((el, i) =>
-    setTimeout(() => el.classList.add("in"), 30 * i));
+  // Render from the local cache first (instant), then sync with Google Sheets.
+  renderCmModules(teamKey, ac);
+  syncContentFromServer().then(ok => { if (ok) renderCmModules(teamKey, ac); });
 
   // Lesson selection: show only the clicked lesson's content (scoped per module).
   container.addEventListener("click", e => {
@@ -69,6 +49,34 @@ document.addEventListener("DOMContentLoaded", () => {
       p.classList.toggle("active", p.dataset.lessonIndex === idx));
   });
 });
+
+/* Render (or re-render) the Content-Manager modules for a team.
+   Removes previously CM-added cards, then appends the current set. */
+function renderCmModules(teamKey, ac) {
+  const container = document.getElementById("learningPath");
+  container.querySelectorAll(".cm-added").forEach(el => el.remove());
+
+  const modules = modulesForPath(teamKey);
+  modules.forEach(m => container.insertAdjacentHTML("beforeend",
+    m.status === "Locked" ? lockedCard(m) : moduleCard(m)));
+
+  const sub = document.querySelector(".page-head .muted");
+  if (!container.querySelector(".level-card")) {
+    if (sub) sub.textContent = `${ac.name} — No content yet.`;
+    container.insertAdjacentHTML("beforeend", `
+      <div class="cm-empty cm-added">
+        <div class="cm-empty-ico">🗂️</div>
+        <h3>No content yet</h3>
+        <p class="muted">No content has been added for this team yet.</p>
+        <p class="muted">${escHtml(ac.name)} — المحتوى هيظهر هنا تلقائيًا بمجرد إضافته ونشره من <strong>Content Manager</strong>.</p>
+      </div>`);
+  } else if (teamKey !== "sales-data" && sub) {
+    sub.textContent = `${ac.name} — اضغط على أي Module علشان يفتح محتواه.`;
+  }
+
+  container.querySelectorAll(".reveal:not(.in)").forEach((el, i) =>
+    setTimeout(() => el.classList.add("in"), 30 * i));
+}
 
 /* Published module → open accordion card. */
 function moduleCard(m) {
@@ -109,7 +117,7 @@ function moduleCard(m) {
   }
 
   return `
-    <div class="level-card reveal">
+    <div class="level-card cm-added reveal">
       <div class="level-head" data-acc-toggle role="button" tabindex="0"
            aria-expanded="false" aria-controls="${bodyId}">
         <div class="level-badge">M${escHtml(m.moduleNumber)}</div>
@@ -152,7 +160,7 @@ function lessonView(lessons) {
 function lockedCard(m) {
   const subtitle = m.shortDesc || "";
   return `
-    <div class="level-card locked-module reveal" aria-disabled="true">
+    <div class="level-card locked-module cm-added reveal" aria-disabled="true">
       <div class="level-head">
         <div class="level-badge locked-badge">M${escHtml(m.moduleNumber)}</div>
         <div class="level-head-text">

@@ -103,6 +103,75 @@ function publishedLessonsForModule(moduleId) {
     .sort((a, b) => (order[a.contentType] ?? 99) - (order[b.contentType] ?? 99));
 }
 
+/* ============================================================
+   REMOTE BACKEND (Google Sheets via Apps Script Web App)
+   ------------------------------------------------------------
+   localStorage is a CACHE; Google Sheets is the source of truth.
+   - Read:  GET  ?action=content   → refreshes the local cache.
+   - Write: POST {type, item|id}    → persists to the Sheet.
+   Writes only go out AFTER a successful read proves the server
+   supports content (so we never pollute the Submissions tab on an
+   old deployment). Empty URL = demo mode (localStorage only).
+   ============================================================ */
+const CONTENT_API_URL = "https://script.google.com/macros/s/AKfycbxE73p1e0ckD04kLWwpLFf7P_n8fmcqwl_OAA1e6dEH1WjvObkuhGKgyTOWvas0Y8wh/exec";
+let remoteContentReady = false;
+
+function s_(v) { return (v === 0 || v) ? String(v) : ""; }
+function normModule(m) {
+  return {
+    id: s_(m.id), academyKey: s_(m.academyKey), moduleNumber: s_(m.moduleNumber),
+    moduleTitle: s_(m.moduleTitle), shortDesc: s_(m.shortDesc), studyTime: s_(m.studyTime),
+    difficulty: s_(m.difficulty), status: s_(m.status) || "Draft", updatedAt: s_(m.updatedAt)
+  };
+}
+function normLesson(l) {
+  return {
+    id: s_(l.id), academyKey: s_(l.academyKey), moduleId: s_(l.moduleId),
+    moduleNumber: s_(l.moduleNumber), lessonTitle: s_(l.lessonTitle), contentType: s_(l.contentType),
+    contentBody: s_(l.contentBody), status: s_(l.status) || "Draft", updatedAt: s_(l.updatedAt)
+  };
+}
+
+/* Pull all content from the Sheet into the local cache. Returns true on success. */
+async function syncContentFromServer() {
+  if (!CONTENT_API_URL) return false;
+  try {
+    const res = await fetch(CONTENT_API_URL + "?action=content", { method: "GET" });
+    const data = await res.json();
+    if (data && data.result === "success") {
+      remoteContentReady = true;
+      saveContent((data.modules || []).map(normModule));
+      saveLessons((data.lessons || []).map(normLesson));
+      return true;
+    }
+  } catch (err) {
+    console.warn("Content sync failed — using local cache.", err);
+  }
+  return false;
+}
+
+/* Fire a write to the Sheet (no-cors: the request is processed even though
+   we can't read the opaque response; callers re-sync to confirm). */
+async function postContent(payload) {
+  if (!CONTENT_API_URL || !remoteContentReady) return false;
+  try {
+    await fetch(CONTENT_API_URL, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
+    });
+    return true;
+  } catch (err) {
+    console.warn("Content push failed.", err);
+    return false;
+  }
+}
+function pushModule(item) { return postContent({ type: "module", item }); }
+function pushLesson(item) { return postContent({ type: "lesson", item }); }
+function deleteModuleRemote(id) { return postContent({ type: "deleteModule", id }); }
+function deleteLessonRemote(id) { return postContent({ type: "deleteLesson", id }); }
+
 /* ---------- Shared helpers ---------- */
 function escHtml(s) {
   return String(s == null ? "" : s)

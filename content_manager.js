@@ -121,6 +121,7 @@ function saveModule(e) {
   if (idx >= 0) CM_ITEMS[idx] = item; else CM_ITEMS.push(item);
   saveContent(CM_ITEMS);
   setSelectedAcademy(item.academyKey);
+  pushModule(item).then(refreshFromServer); // persist to Google Sheets, then re-sync
 
   resetForm();
   renderModuleList();
@@ -143,15 +144,18 @@ function handleListClick(e) {
     case "publish":
       item.status = "Published"; item.updatedAt = nowISO();
       saveContent(CM_ITEMS); renderModuleList();
+      pushModule(item).then(refreshFromServer);
       break;
     case "lock":
       item.status = "Locked"; item.updatedAt = nowISO();
       saveContent(CM_ITEMS); renderModuleList();
+      pushModule(item).then(refreshFromServer);
       break;
     case "delete":
       if (confirm(`حذف "Module ${item.moduleNumber} — ${item.moduleTitle}"؟ لا يمكن التراجع.`)) {
         CM_ITEMS = CM_ITEMS.filter(it => it.id !== item.id);
         saveContent(CM_ITEMS); renderModuleList();
+        deleteModuleRemote(item.id).then(refreshFromServer);
       }
       break;
   }
@@ -295,6 +299,7 @@ function saveLesson(e) {
   if (idx >= 0) LESSON_ITEMS[idx] = item; else LESSON_ITEMS.push(item);
   saveLessons(LESSON_ITEMS);
   setSelectedAcademy(item.academyKey);
+  pushLesson(item).then(refreshFromServer); // persist to Google Sheets, then re-sync
 
   clearLessonForm();
   renderLessonList();
@@ -318,12 +323,14 @@ function handleLessonListClick(e) {
       item.updatedAt = nowISO();
       saveLessons(LESSON_ITEMS);
       renderLessonList();
+      pushLesson(item).then(refreshFromServer);
       break;
     case "delete":
       if (confirm(`حذف "${item.lessonTitle || item.contentType}"؟ لا يمكن التراجع.`)) {
         LESSON_ITEMS = LESSON_ITEMS.filter(l => l.id !== item.id);
         saveLessons(LESSON_ITEMS);
         renderLessonList();
+        deleteLessonRemote(item.id).then(refreshFromServer);
       }
       break;
   }
@@ -342,6 +349,18 @@ function switchTab(tab) {
   ["modules", "lessons"].forEach(t => {
     const panel = document.getElementById("tab-" + t);
     if (panel) panel.hidden = (t !== tab);
+  });
+}
+
+/* Pull the latest content from the server and re-render both lists. */
+function refreshFromServer() {
+  syncContentFromServer().then(ok => {
+    if (!ok) return;
+    CM_ITEMS = loadContent();
+    LESSON_ITEMS = loadLessons();
+    renderModuleList();
+    populateLessonModules($("lModule").value);
+    renderLessonList();
   });
 }
 
@@ -398,4 +417,7 @@ document.addEventListener("DOMContentLoaded", () => {
       renderModuleList();
     }
   }));
+
+  // ----- Initial sync from Google Sheets (falls back to cache) -----
+  refreshFromServer();
 });

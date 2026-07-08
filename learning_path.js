@@ -37,16 +37,21 @@ document.addEventListener("DOMContentLoaded", () => {
   renderCmModules(teamKey, ac);
   syncContentFromServer().then(ok => { if (ok) renderCmModules(teamKey, ac); });
 
-  // Lesson selection: show only the clicked lesson's content (scoped per module).
+  // Lesson accordion: expand the clicked lesson, collapse the rest in that
+  // module (one open at a time). Scoped to the module's own .lesson-acc.
   container.addEventListener("click", e => {
-    const item = e.target.closest(".lesson-item");
-    if (!item || !container.contains(item)) return;
-    const view = item.closest(".lesson-view");
-    if (!view) return;
-    const idx = item.dataset.lessonIndex;
-    view.querySelectorAll(".lesson-item").forEach(b => b.classList.toggle("active", b === item));
-    view.querySelectorAll(".lesson-panel").forEach(p =>
-      p.classList.toggle("active", p.dataset.lessonIndex === idx));
+    const head = e.target.closest("[data-lesson-toggle]");
+    if (!head || !container.contains(head)) return;
+    const item = head.closest(".lesson-acc-item");
+    const acc = head.closest(".lesson-acc");
+    if (!item || !acc) return;
+    const willOpen = !item.classList.contains("open");
+    acc.querySelectorAll(".lesson-acc-item.open").forEach(it => {
+      it.classList.remove("open");
+      const h = it.querySelector("[data-lesson-toggle]");
+      if (h) h.setAttribute("aria-expanded", "false");
+    });
+    if (willOpen) { item.classList.add("open"); head.setAttribute("aria-expanded", "true"); }
   });
 });
 
@@ -134,26 +139,21 @@ function moduleCard(m) {
     </div>`;
 }
 
-/* Lesson navigation for a module: a list of lessons + one visible content
-   panel. Only one lesson shows at a time; the first is active by default. */
+/* Lessons as child accordions inside a module. Each lesson collapses/expands
+   like the module itself; only one lesson is open at a time (per module). */
 function lessonView(lessons) {
-  const list = lessons.map((l, i) => `
-    <button type="button" class="lesson-item${i === 0 ? " active" : ""}" data-lesson-index="${i}">
-      <span class="lesson-item-num">Lesson ${i + 1}</span>
-      <span class="lesson-item-title">${escHtml(l.lessonTitle || l.contentType)}</span>
-    </button>`).join("");
-
-  const panels = lessons.map((l, i) => `
-    <div class="lesson-panel${i === 0 ? " active" : ""}" data-lesson-index="${i}">
-      <h3 class="lesson-title">${escHtml(l.lessonTitle || l.contentType)}</h3>
-      <div class="cm-rendered">${renderRichText(l.contentBody)}</div>
+  const items = lessons.map((l, i) => `
+    <div class="lesson-acc-item">
+      <button type="button" class="lesson-acc-head" data-lesson-toggle aria-expanded="false">
+        <span class="lesson-acc-title">Lesson ${i + 1} — ${escHtml(l.lessonTitle || l.contentType)}</span>
+        <span class="lesson-acc-caret" aria-hidden="true">▾</span>
+      </button>
+      <div class="lesson-acc-body">
+        <div class="cm-rendered">${renderRichText(l.contentBody)}</div>
+      </div>
     </div>`).join("");
 
-  return `
-    <div class="lesson-view">
-      <div class="lesson-list" role="tablist" aria-label="Lessons">${list}</div>
-      <div class="lesson-content">${panels}</div>
-    </div>`;
+  return `<div class="lesson-acc">${items}</div>`;
 }
 
 /* Locked module → header-only "Coming Soon" card (not expandable). */

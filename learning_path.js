@@ -14,6 +14,8 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!teamKey) { location.replace("index.html"); return; } // no team chosen → team selection
   const ac = academyByKey(teamKey);
 
+  logLessonDiagnostics(teamKey); // TEMP: trace why lessons do/don't render (see console)
+
   /* ---- Rebrand the shell for this academy ---- */
   document.title = `Learning Path · ${ac.name}`;
   setText(".brand-text strong", ac.name);
@@ -171,6 +173,42 @@ function lockedCard(m) {
       </div>
     </div>`;
 }
+
+/* ============================================================
+   TEMP DIAGNOSTICS — remove once lessons are confirmed working.
+   Prints exactly why lessons do / don't appear for this team.
+   Re-run any time in the console with:  lpDiag()
+   ============================================================ */
+function logLessonDiagnostics(teamKey) {
+  try {
+    const allModules = (typeof loadContent === "function") ? loadContent() : [];
+    const allLessons = (typeof loadLessons === "function") ? loadLessons() : [];
+    const teamModules = allModules.filter(m => m.academyKey === teamKey);
+
+    console.group("%c[LessonDiag] Learning Path content trace", "color:#2563eb;font-weight:bold");
+    console.log("Team:", teamKey);
+    console.log("remoteContentReady (Google Sheets active?):", typeof remoteContentReady !== "undefined" ? remoteContentReady : "n/a");
+    console.log("Modules in localStorage for this team:", teamModules.length,
+      teamModules.map(m => ({ id: m.id, number: m.moduleNumber, title: m.moduleTitle, status: m.status })));
+    console.log("ALL lessons in localStorage:", allLessons.length,
+      allLessons.map(l => ({ id: l.id, moduleId: l.moduleId, title: l.lessonTitle, type: l.contentType, status: l.status })));
+
+    if (!teamModules.length) {
+      console.warn("→ No modules for this team ON THIS DEVICE. If you created them on another laptop, localStorage does NOT sync — use Content Manager → Import Content here, or deploy the Apps Script backend.");
+    }
+    teamModules.forEach(m => {
+      const linked = allLessons.filter(l => l.moduleId === m.id);
+      const published = linked.filter(l => l.status === "Published");
+      console.log(`Module "${m.moduleTitle}" [status=${m.status}] id=${m.id} → ${linked.length} linked lesson(s), ${published.length} Published`);
+      if (m.status === "Draft") console.warn(`   • Module is DRAFT → hidden from Learning Path. Set it to Published.`);
+      if (m.status === "Locked") console.warn(`   • Module is LOCKED → shows as "Coming Soon" with no lesson body.`);
+      if (linked.length && !published.length) console.warn(`   • Lessons exist but all are DRAFT → hidden. Open Content Manager → Lessons → Publish them.`);
+      if (!linked.length && allLessons.some(l => l.academyKey === m.academyKey)) console.warn(`   • Lessons exist for this academy but none point to this module's id (moduleId mismatch).`);
+    });
+    console.groupEnd();
+  } catch (e) { console.warn("[LessonDiag] error:", e); }
+}
+try { window.lpDiag = () => logLessonDiagnostics(getSelectedAcademy()); } catch (e) {}
 
 /* ---- small DOM helpers ---- */
 function setText(sel, text) { const el = document.querySelector(sel); if (el) el.textContent = text; }

@@ -77,8 +77,14 @@ function modulesByAcademy(academyKey) {
     .sort((a, b) => (parseFloat(a.moduleNumber) || 0) - (parseFloat(b.moduleNumber) || 0));
 }
 
-/* ---------- Lessons / Content store ---------- */
-/* Content types, in the order they should appear inside a module. */
+/* ---------- Lessons / Content store ----------
+   A Lesson is a manageable entity inside a Module. It has an explicit
+   Lesson Number, a Title, a Status (Draft/Published) and an `order`
+   used for manual reordering (Move Up / Move Down). Legacy lessons that
+   only have a `contentType` still sort sensibly (see compareLessons). */
+
+/* Legacy content types — kept only so old lessons keep their relative
+   order until they are re-saved with an explicit `order`. */
 const CONTENT_TYPES = [
   "Introduction", "Business Context", "Training Content", "Practical Example",
   "Common Mistakes", "Tips", "Knowledge Check", "Next Step"
@@ -94,13 +100,32 @@ function loadLessons() {
 }
 function saveLessons(items) { localStorage.setItem(LESSONS_KEY, JSON.stringify(items)); }
 
-/* Published lessons for one module, ordered by content type. */
+/* Canonical lesson sort: explicit `order` first, then (for legacy lessons
+   with no order) content-type order, then Lesson Number. Used everywhere
+   so Content Manager and Learning Path always agree. */
+function compareLessons(a, b) {
+  const hasOrder = v => v === 0 || (v != null && v !== "" && !isNaN(v));
+  const ao = hasOrder(a.order), bo = hasOrder(b.order);
+  if (ao && bo) return Number(a.order) - Number(b.order);
+  if (ao) return -1;
+  if (bo) return 1;
+  const ct = {};
+  CONTENT_TYPES.forEach((t, i) => { ct[t] = i; });
+  const at = ct[a.contentType] ?? 99, bt = ct[b.contentType] ?? 99;
+  if (at !== bt) return at - bt;
+  return (parseFloat(a.lessonNumber) || 0) - (parseFloat(b.lessonNumber) || 0);
+}
+
+/* All lessons for one module (any status), in display order. */
+function lessonsByModule(moduleId) {
+  return loadLessons().filter(l => l.moduleId === moduleId).sort(compareLessons);
+}
+
+/* Published lessons for one module, in display order (for employees). */
 function publishedLessonsForModule(moduleId) {
-  const order = {};
-  CONTENT_TYPES.forEach((t, i) => { order[t] = i; });
   return loadLessons()
     .filter(l => l.moduleId === moduleId && l.status === "Published")
-    .sort((a, b) => (order[a.contentType] ?? 99) - (order[b.contentType] ?? 99));
+    .sort(compareLessons);
 }
 
 /* ============================================================
@@ -125,10 +150,13 @@ function normModule(m) {
   };
 }
 function normLesson(l) {
+  const order = (l.order === 0 || (l.order != null && l.order !== "")) ? Number(l.order) : "";
   return {
     id: s_(l.id), academyKey: s_(l.academyKey), moduleId: s_(l.moduleId),
-    moduleNumber: s_(l.moduleNumber), lessonTitle: s_(l.lessonTitle), contentType: s_(l.contentType),
-    contentBody: s_(l.contentBody), status: s_(l.status) || "Draft", updatedAt: s_(l.updatedAt)
+    moduleNumber: s_(l.moduleNumber), lessonNumber: s_(l.lessonNumber),
+    lessonTitle: s_(l.lessonTitle), contentType: s_(l.contentType),
+    contentBody: s_(l.contentBody), status: s_(l.status) || "Draft",
+    order: order, updatedAt: s_(l.updatedAt)
   };
 }
 
@@ -160,7 +188,19 @@ async function syncContentFromServer() {
     if (mRes && mRes.result === "success" && lRes && lRes.result === "success") {
       remoteContentReady = true;
       saveContent((mRes.modules || []).map(normModule));
-      saveLessons((lRes.lessons || []).map(normLesson));
+      // Lesson ordering/number are managed locally for now (no Sheet columns
+      // yet). Preserve them across a sync so reordering isn't lost.
+      const localById = {};
+      loadLessons().forEach(l => { localById[l.id] = l; });
+      const lessons = (lRes.lessons || []).map(normLesson).map(l => {
+        const local = localById[l.id];
+        if (local) {
+          if (l.order === "" && (local.order === 0 || local.order)) l.order = local.order;
+          if (!l.lessonNumber && local.lessonNumber) l.lessonNumber = local.lessonNumber;
+        }
+        return l;
+      });
+      saveLessons(lessons);
       return true;
     }
   } catch (err) {
@@ -198,6 +238,22 @@ function deleteLessonRemote(id) { return postContent({ action: "deleteLesson", i
 function escHtml(s) {
   return String(s == null ? "" : s)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/* ---- Attachment helpers (shared by Content Manager + Learning Path) ---- */
+function fileIcon(name) {
+  const n = String(name || "").toLowerCase();
+  if (n.endsWith(".pdf")) return "📕";
+  if (n.endsWith(".docx") || n.endsWith(".doc")) return "📘";
+  if (n.endsWith(".pptx") || n.endsWith(".ppt")) return "📙";
+  if (/\.(jpg|jpeg|png)$/.test(n)) return "🖼️";
+  return "📎";
+}
+function humanSize(bytes) {
+  const b = Number(bytes) || 0;
+  if (b < 1024) return b + " B";
+  if (b < 1048576) return (b / 1024).toFixed(0) + " KB";
+  return (b / 1048576).toFixed(1) + " MB";
 }
 
 /* Minimal "rich text" renderer for the Learning Content field.

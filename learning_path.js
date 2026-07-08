@@ -147,7 +147,7 @@ function lessonView(lessons) {
   const items = lessons.map((l, i) => `
     <div class="lesson-acc-item">
       <button type="button" class="lesson-acc-head" data-lesson-toggle aria-expanded="false">
-        <span class="lesson-acc-title">Lesson ${i + 1} — ${escHtml(l.lessonTitle || l.contentType)}</span>
+        <span class="lesson-acc-title">Lesson ${escHtml(l.lessonNumber) || (i + 1)} — ${escHtml(l.lessonTitle || l.contentType)}</span>
         <span class="lesson-acc-caret" aria-hidden="true">▾</span>
       </button>
       <div class="lesson-acc-body">

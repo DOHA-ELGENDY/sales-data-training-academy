@@ -187,47 +187,56 @@ function populateLessonModules(preferId) {
   if (preferId && mods.some(m => m.id === preferId)) sel.value = preferId;
 }
 
+/* Give every lesson in a module a clean sequential `order` (0,1,2,…) that
+   matches its current display order. Runs before rendering so Move Up/Down
+   and legacy lessons (with no order) always behave predictably. */
+function ensureLessonOrder(moduleId) {
+  const sorted = LESSON_ITEMS.filter(l => l.moduleId === moduleId).sort(compareLessons);
+  let changed = false;
+  sorted.forEach((l, i) => { if (l.order !== i) { l.order = i; changed = true; } });
+  if (changed) saveLessons(LESSON_ITEMS);
+  return sorted;
+}
+
 function renderLessonList() {
   const list = $("lessonList");
   const moduleId = $("lModule").value;
   const mod = CM_ITEMS.find(m => m.id === moduleId);
-  $("lListHeading").textContent = mod ? `Content · M${mod.moduleNumber} — ${mod.moduleTitle}` : "Content";
+  $("lListHeading").textContent = mod ? `Lessons · M${mod.moduleNumber} — ${mod.moduleTitle}` : "Lessons";
 
   if (!moduleId) {
     list.innerHTML = `
       <div class="cm-empty">
         <div class="cm-empty-ico">📄</div>
         <h3>اختر Module</h3>
-        <p class="muted">أضف Module الأول من تاب <strong>Modules</strong>، بعدين تقدر تضيف محتواه هنا.</p>
+        <p class="muted">أضف Module الأول من تاب <strong>Modules</strong>، بعدين تقدر تضيف دروسه هنا.</p>
       </div>`;
     return;
   }
 
-  const order = {};
-  CONTENT_TYPES.forEach((t, i) => { order[t] = i; });
-  const items = LESSON_ITEMS
-    .filter(l => l.moduleId === moduleId)
-    .sort((a, b) => (order[a.contentType] ?? 99) - (order[b.contentType] ?? 99));
+  const items = ensureLessonOrder(moduleId);
 
   if (!items.length) {
     list.innerHTML = `
       <div class="cm-empty">
         <div class="cm-empty-ico">📝</div>
-        <h3>لا يوجد محتوى بعد</h3>
-        <p class="muted">أضف أول محتوى للموديول من الفورم فوق.</p>
+        <h3>لا يوجد دروس بعد</h3>
+        <p class="muted">أضف أول درس للموديول من الفورم فوق.</p>
       </div>`;
     return;
   }
 
-  list.innerHTML = items.map(l => `
+  list.innerHTML = items.map((l, i) => `
     <div class="cm-card reveal">
       <div class="cm-card-top">
-        <span class="cm-type">${escHtml(l.contentType)}</span>
+        <span class="cm-num">L${escHtml(l.lessonNumber) || (i + 1)}</span>
         <span class="cm-status ${l.status === "Published" ? "is-pub" : "is-draft"}">${escHtml(l.status)}</span>
       </div>
-      <h3 class="cm-card-title">${escHtml(l.lessonTitle) || escHtml(l.contentType)}</h3>
+      <h3 class="cm-card-title">${escHtml(l.lessonTitle) || "بدون عنوان"}</h3>
       <div class="cm-card-updated">Last updated: ${escHtml(fmtDate(l.updatedAt))}</div>
       <div class="cm-card-actions">
+        <button class="btn btn-ghost" data-lact="up" data-id="${l.id}" ${i === 0 ? "disabled" : ""} title="Move up">↑</button>
+        <button class="btn btn-ghost" data-lact="down" data-id="${l.id}" ${i === items.length - 1 ? "disabled" : ""} title="Move down">↓</button>
         <button class="btn btn-ghost" data-lact="edit" data-id="${l.id}">Edit</button>
         <button class="btn btn-ghost" data-lact="toggle" data-id="${l.id}">${l.status === "Published" ? "Set Draft" : "Publish"}</button>
         <button class="btn btn-ghost cm-danger" data-lact="delete" data-id="${l.id}">Delete</button>
@@ -238,13 +247,22 @@ function renderLessonList() {
   list.querySelectorAll(".reveal").forEach((el, i) => setTimeout(() => el.classList.add("in"), 30 * i));
 }
 
+/* Next free Lesson Number for a module (max existing + 1). */
+function nextLessonNumber(moduleId) {
+  const nums = LESSON_ITEMS
+    .filter(l => l.moduleId === moduleId)
+    .map(l => parseFloat(l.lessonNumber))
+    .filter(n => !isNaN(n));
+  return nums.length ? Math.max(...nums) + 1 : 1;
+}
+
 function clearLessonForm() {
   $("lId").value = "";
+  $("lNumber").value = nextLessonNumber($("lModule").value);
   $("lTitle").value = "";
   $("lBody").value = "";
-  $("lType").value = CONTENT_TYPES[0];
   $("lStatus").value = "Draft";
-  $("lSaveBtn").textContent = "Save Content";
+  $("lSaveBtn").textContent = "Save Lesson";
   $("lMsg").textContent = "";
 }
 
@@ -254,11 +272,11 @@ function fillLessonForm(l) {
   populateLessonModules(l.moduleId);
   $("lModule").value = l.moduleId;
   $("lId").value = l.id;
+  $("lNumber").value = l.lessonNumber || "";
   $("lTitle").value = l.lessonTitle || "";
-  $("lType").value = l.contentType;
   $("lBody").value = l.contentBody || "";
   $("lStatus").value = l.status || "Draft";
-  $("lSaveBtn").textContent = "Update Content";
+  $("lSaveBtn").textContent = "Update Lesson";
   renderLessonList();
   document.querySelector("#tab-lessons").scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -277,35 +295,55 @@ function saveLesson(e) {
   }
   if (!title || !body.trim()) {
     msg.style.color = "#dc2626";
-    msg.textContent = "Lesson Title و Content Body مطلوبين.";
+    msg.textContent = "Lesson Title و Lesson Content مطلوبين.";
     return;
   }
 
   const id = $("lId").value || uid();
   const mod = CM_ITEMS.find(m => m.id === moduleId);
-  const item = {
+  const existing = LESSON_ITEMS.find(l => l.id === id) || {};
+  // Merge onto any existing lesson so its order (and any legacy fields) survive edits.
+  const item = Object.assign({}, existing, {
     id,
     academyKey: $("lAcademy").value,
     moduleId,
     moduleNumber: mod ? mod.moduleNumber : "",
+    lessonNumber: $("lNumber").value.trim(),
     lessonTitle: title,
-    contentType: $("lType").value,
     contentBody: body,
     status: $("lStatus").value,
+    // New lessons go to the end of the module; existing ones keep their place.
+    order: (existing.order === 0 || existing.order) ? existing.order
+      : LESSON_ITEMS.filter(l => l.moduleId === moduleId).length,
     updatedAt: nowISO()
-  };
+  });
 
   const idx = LESSON_ITEMS.findIndex(l => l.id === id);
   if (idx >= 0) LESSON_ITEMS[idx] = item; else LESSON_ITEMS.push(item);
   saveLessons(LESSON_ITEMS);
   setSelectedAcademy(item.academyKey);
-  pushLesson(item).then(refreshFromServer); // persist to Google Sheets, then re-sync
+  pushLesson(item); // best-effort persist; localStorage stays authoritative for now
 
   clearLessonForm();
   renderLessonList();
   msg.style.color = "#16a34a";
   msg.textContent = "تم الحفظ ✓";
   setTimeout(() => { if (msg.textContent === "تم الحفظ ✓") msg.textContent = ""; }, 2500);
+}
+
+/* Move a lesson up/down within its module (swaps order with its neighbour). */
+function moveLesson(id, dir) {
+  const item = LESSON_ITEMS.find(l => l.id === id);
+  if (!item) return;
+  const sorted = LESSON_ITEMS.filter(l => l.moduleId === item.moduleId).sort(compareLessons);
+  const idx = sorted.findIndex(l => l.id === id);
+  const swap = idx + (dir === "up" ? -1 : 1);
+  if (swap < 0 || swap >= sorted.length) return;
+  const a = sorted[idx], b = sorted[swap];
+  const t = a.order; a.order = b.order; b.order = t;
+  a.updatedAt = b.updatedAt = nowISO();
+  saveLessons(LESSON_ITEMS);
+  renderLessonList();
 }
 
 function handleLessonListClick(e) {
@@ -318,19 +356,23 @@ function handleLessonListClick(e) {
     case "edit":
       fillLessonForm(item);
       break;
+    case "up":
+    case "down":
+      moveLesson(item.id, btn.dataset.lact);
+      break;
     case "toggle":
       item.status = item.status === "Published" ? "Draft" : "Published";
       item.updatedAt = nowISO();
       saveLessons(LESSON_ITEMS);
       renderLessonList();
-      pushLesson(item).then(refreshFromServer);
+      pushLesson(item);
       break;
     case "delete":
-      if (confirm(`حذف "${item.lessonTitle || item.contentType}"؟ لا يمكن التراجع.`)) {
+      if (confirm(`حذف الدرس "${item.lessonTitle || item.lessonNumber}"؟ لا يمكن التراجع.`)) {
         LESSON_ITEMS = LESSON_ITEMS.filter(l => l.id !== item.id);
         saveLessons(LESSON_ITEMS);
         renderLessonList();
-        deleteLessonRemote(item.id).then(refreshFromServer);
+        deleteLessonRemote(item.id);
       }
       break;
   }
@@ -447,12 +489,12 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // ----- Lessons / Content tab -----
-  $("lType").innerHTML = CONTENT_TYPES.map(t => `<option value="${escHtml(t)}">${escHtml(t)}</option>`).join("");
   $("lAcademy").innerHTML = acadOptions;
   $("lAcademy").value = getSelectedAcademy() || ACADEMIES[0].key;
   LESSON_ITEMS = loadLessons();
   populateLessonModules();
   renderLessonList();
+  clearLessonForm();
   $("lessonForm").addEventListener("submit", saveLesson);
   $("lClearBtn").addEventListener("click", clearLessonForm);
   $("lessonList").addEventListener("click", handleLessonListClick);
@@ -460,8 +502,12 @@ document.addEventListener("DOMContentLoaded", () => {
     setSelectedAcademy($("lAcademy").value);
     populateLessonModules();
     renderLessonList();
+    clearLessonForm();
   });
-  $("lModule").addEventListener("change", renderLessonList);
+  $("lModule").addEventListener("change", () => {
+    renderLessonList();
+    clearLessonForm();
+  });
 
   // ----- Tabs -----
   document.querySelectorAll(".cm-tab[data-tab]").forEach(b => b.addEventListener("click", () => {

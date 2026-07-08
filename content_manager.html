@@ -165,12 +165,12 @@
               <select id="lModule"></select>
             </div>
             <div class="field">
-              <label for="lTitle">Lesson Title</label>
-              <input type="text" id="lTitle" placeholder="Understanding Sales Role" />
+              <label for="lNumber">Lesson Number</label>
+              <input type="text" id="lNumber" placeholder="1, 2, 3" />
             </div>
             <div class="field">
-              <label for="lType">Content Type</label>
-              <select id="lType"></select>
+              <label for="lTitle">Lesson Title</label>
+              <input type="text" id="lTitle" placeholder="Understanding Sales Role" />
             </div>
             <div class="field field-full">
               <label for="lBody">Content Body</label>
@@ -178,6 +178,19 @@
                 placeholder="اكتب المحتوى هنا…&#10;# عنوان&#10;## عنوان فرعي&#10;- نقطة&#10;1. خطوة"></textarea>
               <p class="cm-hint">استخدم <code># عنوان</code> · <code>## عنوان فرعي</code> · <code>- نقطة</code> · <code>1. خطوة</code></p>
             </div>
+
+            <!-- Attachments (stored locally as data URLs for now; Google Drive later) -->
+            <div class="field field-full">
+              <label>Attachments</label>
+              <div class="cm-attach">
+                <button type="button" class="btn btn-ghost" id="lAttachBtn">⬆ Upload File</button>
+                <input type="file" id="lAttachInput" multiple hidden
+                  accept=".pdf,.docx,.pptx,.jpg,.jpeg,.png,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/jpeg,image/png" />
+                <span class="cm-hint">PDF · DOCX · PPTX · JPG · PNG</span>
+              </div>
+              <ul class="attach-list" id="lAttachList"></ul>
+            </div>
+
             <div class="field">
               <label for="lStatus">Status</label>
               <select id="lStatus">

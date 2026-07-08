@@ -17,6 +17,9 @@ const CM_TREE_COLLAPSED = new Set();
 /* Learning Objectives rows for the module currently in the Module form. */
 let MOD_OBJECTIVES = [""];
 
+/* Rich text editor instance for the Lesson Content field. */
+let lessonEditor = null;
+
 function uid() {
   return "c" + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
 }
@@ -304,6 +307,7 @@ function clearLessonForm() {
   $("lNumber").value = nextLessonNumber($("lModule").value);
   $("lTitle").value = "";
   $("lBody").value = "";
+  if (lessonEditor) lessonEditor.clear();
   $("lStatus").value = "Draft";
   $("lSaveBtn").textContent = "Save Lesson";
   $("lMsg").textContent = "";
@@ -320,7 +324,12 @@ function fillLessonForm(l) {
   $("lId").value = l.id;
   $("lNumber").value = l.lessonNumber || "";
   $("lTitle").value = l.lessonTitle || "";
-  $("lBody").value = l.contentBody || "";
+  const content = l.contentBody || "";
+  $("lBody").value = content;
+  // Legacy plain-text lessons are converted to HTML for the rich editor.
+  if (lessonEditor) {
+    lessonEditor.setHTML(!content.trim() ? "" : (looksLikeHtml(content) ? content : renderRichText(content)));
+  }
   $("lStatus").value = l.status || "Draft";
   $("lSaveBtn").textContent = "Update Lesson";
   fillAssignmentForm(l.assignment);
@@ -334,7 +343,7 @@ function saveLesson(e) {
   e.preventDefault();
   const moduleId = $("lModule").value;
   const title = $("lTitle").value.trim();
-  const body = $("lBody").value;
+  const body = lessonEditor ? lessonEditor.getHTML() : $("lBody").value;
   const msg = $("lMsg");
 
   if (!moduleId) {
@@ -368,8 +377,17 @@ function saveLesson(e) {
   });
 
   const idx = LESSON_ITEMS.findIndex(l => l.id === id);
+  const prev = idx >= 0 ? LESSON_ITEMS[idx] : null;
   if (idx >= 0) LESSON_ITEMS[idx] = item; else LESSON_ITEMS.push(item);
-  saveLessons(LESSON_ITEMS);
+  try {
+    saveLessons(LESSON_ITEMS);
+  } catch (err) {
+    // localStorage quota exceeded (usually large embedded images) — roll back.
+    if (idx >= 0) LESSON_ITEMS[idx] = prev; else LESSON_ITEMS.pop();
+    msg.style.color = "#dc2626";
+    msg.textContent = "تعذّر الحفظ محليًا — المحتوى كبير (صور؟). صغّر حجم الصور وحاول تاني.";
+    return;
+  }
   setSelectedAcademy(item.academyKey);
   pushLesson(item); // best-effort persist; localStorage stays authoritative for now
 
@@ -924,6 +942,12 @@ document.addEventListener("DOMContentLoaded", () => {
   $("lAcademy").innerHTML = acadOptions;
   $("lAcademy").value = getSelectedAcademy() || ACADEMIES[0].key;
   LESSON_ITEMS = loadLessons();
+
+  // ----- Rich text editor for Lesson Content -----
+  lessonEditor = createRichEditor($("lEditor"), {
+    placeholder: "اكتب محتوى الدرس هنا…",
+    onChange: html => { $("lBody").value = html; }
+  });
 
   // ----- Activities sub-editor (inside the lesson editor) -----
   $("actType").innerHTML = ACTIVITY_TYPES.map(t => `<option value="${t.value}">${escHtml(t.label)}</option>`).join("");

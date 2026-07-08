@@ -284,7 +284,7 @@ function lessonView(lessons, academyKey) {
         <span class="lesson-acc-caret" aria-hidden="true">▾</span>
       </button>
       <div class="lesson-acc-body">
-        <div class="cm-rendered">${renderRichText(l.contentBody)}</div>
+        <div class="cm-rendered">${renderLessonContent(l.contentBody)}</div>
         ${assignmentBlock(l.assignment)}
         ${activitiesBlock(l, academyKey)}
         <div class="lesson-complete">

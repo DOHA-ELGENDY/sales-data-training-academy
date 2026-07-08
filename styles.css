@@ -1118,6 +1118,69 @@ a.nav-item { color: #cdd8e6; }
 .dash-action-text strong { font-size: 15px; color: var(--text); }
 .dash-action-text span { font-size: 12px; color: var(--muted); }
 
+/* ============================================================
+   RICH TEXT EDITOR (Lesson Content) + rendered rich content
+   ============================================================ */
+.rte { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); overflow: hidden; }
+.rte-toolbar {
+  display: flex; flex-wrap: wrap; gap: 2px; align-items: center;
+  padding: 6px; border-bottom: 1px solid var(--border); background: #f7f9fc;
+}
+.rte-toolbar button {
+  min-width: 30px; height: 30px; padding: 0 7px; border: 1px solid transparent;
+  background: transparent; border-radius: 6px; cursor: pointer;
+  font-size: 13px; font-family: inherit; color: var(--text); line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.rte-toolbar button:hover { background: #e6edf9; border-color: var(--border); }
+.rte-sep { width: 1px; align-self: stretch; background: var(--border); margin: 3px; }
+.rte-area {
+  min-height: 220px; max-height: 460px; overflow-y: auto;
+  padding: 14px 16px; outline: none; font-size: 14px; line-height: 1.7; color: var(--text);
+}
+.rte-area:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
+.rte-area.rte-dragover { outline: 2px dashed var(--primary); outline-offset: -6px; background: #f4f8ff; }
+
+/* Base text elements inside the editor area */
+.rte-area h1 { font-size: 22px; font-weight: 800; margin: 12px 0 8px; }
+.rte-area h2 { font-size: 19px; font-weight: 800; margin: 12px 0 6px; }
+.rte-area h3 { font-size: 18px; font-weight: 700; margin: 10px 0 6px; }
+.rte-area p { margin-bottom: 8px; }
+.rte-area ul, .rte-area ol { padding-inline-start: 22px; margin-bottom: 8px; }
+.rte-area li { margin-bottom: 4px; }
+.rte-area a { color: var(--primary); text-decoration: underline; }
+.cm-rendered h1 { font-size: 22px; font-weight: 800; margin: 10px 0 8px; }
+.cm-rendered h2 { font-size: 19px; font-weight: 800; margin: 10px 0 6px; }
+.cm-rendered a { color: var(--primary); text-decoration: underline; }
+
+/* Shared rich blocks — same look in the editor and the Learning Path */
+.rte-area blockquote, .cm-rendered blockquote {
+  margin: 10px 0; padding: 8px 14px; border-inline-start: 3px solid var(--primary);
+  background: #f4f7fd; border-radius: 6px; font-size: 14px;
+}
+.rte-area mark, .cm-rendered mark { background: #fde68a; padding: 0 2px; border-radius: 3px; }
+.rte-area hr, .cm-rendered hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+.rte-area pre.rte-code, .cm-rendered pre.rte-code {
+  background: #0e2340; color: #e6edf7; padding: 12px 14px; border-radius: 8px;
+  overflow-x: auto; white-space: pre-wrap; margin: 10px 0; direction: ltr; text-align: left;
+  font-family: "Consolas", "Menlo", "Courier New", monospace; font-size: 13px;
+}
+.rte-table, .cm-rendered table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+.rte-table th, .rte-table td,
+.cm-rendered table th, .cm-rendered table td { border: 1px solid var(--border); padding: 8px 10px; }
+.rte-table th, .cm-rendered table th { background: #eef2fb; font-weight: 700; }
+.rte-figure { margin: 12px 0; }
+.rte-figure figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.rte-img { display: inline-block; overflow: hidden; max-width: 100%; }
+.rte-img img { display: block; width: 100%; height: auto; border-radius: 6px; }
+.rte-area .rte-img { resize: horizontal; min-width: 60px; }
+.callout { margin: 12px 0; padding: 12px 14px; border-radius: 8px; border-inline-start: 4px solid; font-size: 14px; }
+.callout p { margin: 0; }
+.callout-info { background: #eaf3ff; border-color: #2563eb; }
+.callout-note { background: #f3f0ff; border-color: #7c3aed; }
+.callout-warning { background: #fdf0e8; border-color: #d97706; }
+.callout-tip { background: #eafaf1; border-color: #16a34a; }
+
 /* ---- Academy progress summary (Learning Path top) ---- */
 .academy-progress {
   display: grid; grid-template-columns: 1fr 1fr 1.5fr; gap: 16px; align-items: center;

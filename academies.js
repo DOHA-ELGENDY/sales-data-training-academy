@@ -394,6 +394,17 @@ function renderRichText(text) {
   return html || '<p class="muted">لا يوجد محتوى.</p>';
 }
 
+/* Lesson content is now authored as HTML by the rich text editor. Render it
+   as-is; fall back to the legacy markdown-ish renderer for older lessons that
+   were saved as plain text. (Content is authored by managers in the Content
+   Manager, so the stored HTML is trusted.) */
+function looksLikeHtml(s) { return /<\/?[a-z][\s\S]*>/i.test(String(s || "")); }
+function renderLessonContent(text) {
+  const s = String(text == null ? "" : text);
+  if (!s.trim()) return '<p class="muted">لا يوجد محتوى.</p>';
+  return looksLikeHtml(s) ? s : renderRichText(s);
+}
+
 /* ---------- Team selection cards (index.html) ---------- */
 function renderTeamCards() {
   const grid = document.getElementById("teamGrid");

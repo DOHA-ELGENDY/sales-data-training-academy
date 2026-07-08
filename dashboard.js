@@ -210,6 +210,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   renderDashboard(key);
 
+  // Render from the local cache first (instant), then refresh from Google Sheets.
+  if (typeof syncContentFromServer === "function") {
+    syncContentFromServer().then(ok => { if (ok) renderDashboard(sel.value); });
+  }
+
   // Reveal any newly-injected sections.
   document.querySelectorAll(".reveal:not(.in)").forEach((el, i) =>
     setTimeout(() => el.classList.add("in"), 40 * i));

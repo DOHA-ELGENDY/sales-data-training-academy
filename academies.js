@@ -225,36 +225,51 @@ function setResponse(academyKey, activityId, value) {
 }
 
 /* ============================================================
-   REMOTE BACKEND (Google Sheets via Apps Script Web App)
+   REMOTE BACKEND — Google Sheets via Apps Script Web App (Sprint 2)
    ------------------------------------------------------------
-   localStorage is a CACHE; Google Sheets is the source of truth.
-   - Read:  GET  ?action=content   → refreshes the local cache.
-   - Write: POST {type, item|id}    → persists to the Sheet.
-   Writes only go out AFTER a successful read proves the server
-   supports content (so we never pollute the Submissions tab on an
-   old deployment). Empty URL = demo mode (localStorage only).
+   Google Sheets is the PRIMARY content store; localStorage is a
+   cache + offline fallback.
+   - Read:  JSONP GET  ?action=getAll       → refreshes the cache.
+   - Write: no-cors POST {action, item|id}  → persists to the Sheet.
+     Writes are optimistic (cache first); failed writes are queued in
+     an outbox and retried on next load / when the browser is back online.
+   - First run against an empty Sheet with existing local data seeds
+     the Sheet from the cache (one-time migration).
+   Empty URL = demo mode (localStorage only). Setup + deploy steps:
+   see GOOGLE_SHEETS_BACKEND.md.
    ============================================================ */
 const CONTENT_API_URL = "https://script.google.com/macros/s/AKfycbxE73p1e0ckD04kLWwpLFf7P_n8fmcqwl_OAA1e6dEH1WjvObkuhGKgyTOWvas0Y8wh/exec";
 let remoteContentReady = false;
 
 function s_(v) { return (v === 0 || v) ? String(v) : ""; }
+/* Accepts a value that may already be an object/array, a JSON string (as the
+   Sheet stores nested fields), or empty — returns the parsed value. */
+function parseMaybe(v, fallback) {
+  if (v == null || v === "") return fallback;
+  if (typeof v === "string") { try { return JSON.parse(v); } catch (e) { return fallback; } }
+  return v;
+}
 function normModule(m) {
+  const objectives = parseMaybe(m.objectives, []);
   return {
     id: s_(m.id), academyKey: s_(m.academyKey), moduleNumber: s_(m.moduleNumber),
     moduleTitle: s_(m.moduleTitle), shortDesc: s_(m.shortDesc),
-    objectives: Array.isArray(m.objectives) ? m.objectives.map(s_) : [],
+    objectives: Array.isArray(objectives) ? objectives.map(s_) : [],
     studyTime: s_(m.studyTime), difficulty: s_(m.difficulty),
     prerequisites: s_(m.prerequisites), status: s_(m.status) || "Draft", updatedAt: s_(m.updatedAt)
   };
 }
 function normLesson(l) {
   const order = (l.order === 0 || (l.order != null && l.order !== "")) ? Number(l.order) : "";
+  const activities = parseMaybe(l.activities, []);
   return {
     id: s_(l.id), academyKey: s_(l.academyKey), moduleId: s_(l.moduleId),
     moduleNumber: s_(l.moduleNumber), lessonNumber: s_(l.lessonNumber),
     lessonTitle: s_(l.lessonTitle), contentType: s_(l.contentType),
-    contentBody: s_(l.contentBody), status: s_(l.status) || "Draft",
-    order: order, updatedAt: s_(l.updatedAt)
+    contentBody: s_(l.contentBody), status: s_(l.status) || "Draft", order: order,
+    assignment: parseMaybe(l.assignment, null),
+    activities: Array.isArray(activities) ? activities : [],
+    updatedAt: s_(l.updatedAt)
   };
 }
 
@@ -278,41 +293,83 @@ function jsonp(action) {
   });
 }
 
-/* Pull modules + lessons from the Sheet into the local cache. Returns true on success. */
+/* ---------- Offline write queue (outbox) ----------
+   Writes that fail (offline / server unreachable) are stored here and
+   retried on the next load and whenever the browser comes back online. */
+const OUTBOX_KEY = "sdta_outbox_v1";
+function loadOutbox() { try { return JSON.parse(localStorage.getItem(OUTBOX_KEY)) || []; } catch (e) { return []; } }
+function saveOutbox(q) { localStorage.setItem(OUTBOX_KEY, JSON.stringify(q)); }
+function queueWrite(payload) { const q = loadOutbox(); q.push(payload); saveOutbox(q); }
+function outboxCount() { return loadOutbox().length; }
+
+function sendPost(payload) {
+  return fetch(CONTENT_API_URL, {
+    method: "POST", mode: "no-cors",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(payload)
+  });
+}
+
+/* Retry every queued write in order; anything still failing stays queued. */
+async function flushOutbox() {
+  if (!CONTENT_API_URL) return;
+  const q = loadOutbox();
+  if (!q.length) return;
+  const remaining = [];
+  for (const payload of q) {
+    try { await sendPost(payload); }
+    catch (e) { remaining.push(payload); }
+  }
+  saveOutbox(remaining);
+}
+
+/* Persist a write to the Sheet. The caller has already written to the local
+   cache (optimistic); on network failure the write is queued for later. */
+async function postContent(payload) {
+  if (!CONTENT_API_URL) { queueWrite(payload); return false; }
+  try {
+    await flushOutbox();      // drain any pending writes first (preserve order)
+    await sendPost(payload);
+    return true;
+  } catch (err) {
+    queueWrite(payload);      // offline / unreachable — retry later
+    return false;
+  }
+}
+function pushModule(item) { return postContent({ action: "saveModule", item }); }
+function pushLesson(item) { return postContent({ action: "saveLesson", item }); }
+function deleteModuleRemote(id) { return postContent({ action: "deleteModule", id }); }
+function deleteLessonRemote(id) { return postContent({ action: "deleteLesson", id }); }
+
+/* One-time seed: push whatever is already in localStorage up to an empty Sheet. */
+async function migrateLocalToServer(modules, lessons) {
+  const payload = { action: "bulkSave", modules: modules, lessons: lessons };
+  try { await sendPost(payload); return true; }
+  catch (e) { queueWrite(payload); return false; }
+}
+
+/* Pull everything from the Sheet into the local cache. Google Sheets is the
+   source of truth for reads; returns true on success, false when offline
+   (in which case the caller keeps using the local cache). */
 async function syncContentFromServer() {
   if (!CONTENT_API_URL) return false;
+  await flushOutbox(); // push pending offline writes before reading fresh state
   try {
-    const [mRes, lRes] = await Promise.all([jsonp("getModules"), jsonp("getLessons")]);
-    if (mRes && mRes.result === "success" && lRes && lRes.result === "success") {
+    const res = await jsonp("getAll");
+    if (res && res.result === "success") {
       remoteContentReady = true;
-      // Module-level objectives/prerequisites are managed locally for now (no
-      // Sheet columns yet). Preserve them across a sync so they aren't lost.
-      const localModById = {};
-      loadContent().forEach(m => { localModById[m.id] = m; });
-      const modules = (mRes.modules || []).map(normModule).map(m => {
-        const local = localModById[m.id];
-        if (local) {
-          if ((!m.objectives || !m.objectives.length) && local.objectives && local.objectives.length) m.objectives = local.objectives;
-          if (!m.prerequisites && local.prerequisites) m.prerequisites = local.prerequisites;
-        }
-        return m;
-      });
-      saveContent(modules);
-      // Lesson ordering/number are managed locally for now (no Sheet columns
-      // yet). Preserve them across a sync so reordering isn't lost.
-      const localById = {};
-      loadLessons().forEach(l => { localById[l.id] = l; });
-      const lessons = (lRes.lessons || []).map(normLesson).map(l => {
-        const local = localById[l.id];
-        if (local) {
-          if (l.order === "" && (local.order === 0 || local.order)) l.order = local.order;
-          if (!l.lessonNumber && local.lessonNumber) l.lessonNumber = local.lessonNumber;
-          if (!l.assignment && local.assignment) l.assignment = local.assignment;
-          if (!l.activities && local.activities) l.activities = local.activities;
-        }
-        return l;
-      });
-      saveLessons(lessons);
+      const serverModules = (res.modules || []).map(normModule);
+      const serverLessons = (res.lessons || []).map(normLesson);
+      const localModules = loadContent();
+      const localLessons = loadLessons();
+      // First run against an empty Sheet but with existing local data → seed it
+      // and keep the local cache (it has just become the server's content).
+      if (!serverModules.length && !serverLessons.length && (localModules.length || localLessons.length)) {
+        await migrateLocalToServer(localModules, localLessons);
+        return true;
+      }
+      saveContent(serverModules);
+      saveLessons(serverLessons);
       return true;
     }
   } catch (err) {
@@ -321,30 +378,10 @@ async function syncContentFromServer() {
   return false;
 }
 
-/* Fire a write to the Sheet (no-cors: the request is processed even though
-   we can't read the opaque response; callers re-sync to confirm). Writes only
-   go out once a read has proven the content backend is deployed. */
-async function postContent(payload) {
-  if (!CONTENT_API_URL) return false;
-  if (!remoteContentReady) { await syncContentFromServer(); }
-  if (!remoteContentReady) return false;
-  try {
-    await fetch(CONTENT_API_URL, {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload)
-    });
-    return true;
-  } catch (err) {
-    console.warn("Content push failed.", err);
-    return false;
-  }
+/* Retry queued writes as soon as connectivity returns. */
+if (typeof window !== "undefined" && window.addEventListener) {
+  window.addEventListener("online", function () { flushOutbox(); });
 }
-function pushModule(item) { return postContent({ action: "saveModule", item }); }
-function pushLesson(item) { return postContent({ action: "saveLesson", item }); }
-function deleteModuleRemote(id) { return postContent({ action: "deleteModule", id }); }
-function deleteLessonRemote(id) { return postContent({ action: "deleteLesson", id }); }
 
 /* ---------- Shared helpers ---------- */
 function escHtml(s) {

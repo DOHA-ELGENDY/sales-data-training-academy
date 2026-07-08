@@ -75,6 +75,14 @@
         <p class="muted">أنشئ وعدّل محتوى الأكاديميات من هنا. (نسخة أولية بدون Database)</p>
       </div>
 
+      <!-- Export / Import content backup (localStorage ↔ JSON file) -->
+      <div class="cm-io reveal">
+        <button class="btn btn-ghost" id="cmExportBtn">⬇ Export Content</button>
+        <button class="btn btn-ghost" id="cmImportBtn">⬆ Import Content</button>
+        <input type="file" id="cmImportFile" accept="application/json,.json" hidden />
+        <span class="form-msg" id="cmIoMsg" role="status" aria-live="polite"></span>
+      </div>
+
       <!-- Tabs (only Modules is active for now) -->
       <div class="cm-tabs reveal" role="tablist" aria-label="Content Manager sections">
         <button class="cm-tab active" data-tab="modules" role="tab" aria-selected="true">Modules</button>

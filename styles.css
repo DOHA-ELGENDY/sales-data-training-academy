@@ -864,6 +864,9 @@ a.nav-item { color: #cdd8e6; }
 /* ============================================================
    CONTENT MANAGER — additive (front-end only)
    ============================================================ */
+/* ---- Export / Import toolbar ---- */
+.cm-io { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 20px; }
+
 /* ---- Tabs ---- */
 .cm-tabs {
   display: flex; gap: 4px; flex-wrap: wrap;

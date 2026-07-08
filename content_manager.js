@@ -352,6 +352,66 @@ function switchTab(tab) {
   });
 }
 
+/* ============================================================
+   EXPORT / IMPORT (localStorage ↔ JSON file) — no backend
+   ============================================================ */
+function ioMsg(text, ok) {
+  const el = $("cmIoMsg");
+  if (!el) return;
+  el.style.color = ok ? "#16a34a" : "#dc2626";
+  el.textContent = text;
+  setTimeout(() => { if (el.textContent === text) el.textContent = ""; }, 5000);
+}
+
+function exportContent() {
+  const data = {
+    app: "sales-data-training-academy",
+    type: "content-backup",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    modules: loadContent(),
+    lessons: loadLessons()
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "academy-content-backup.json";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  ioMsg(`تم تصدير academy-content-backup.json (${data.modules.length} Modules · ${data.lessons.length} Lessons) ✓`, true);
+}
+
+function importContent(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    let data;
+    try { data = JSON.parse(reader.result); }
+    catch (e) { ioMsg("الملف مش صالح (JSON غير صحيح).", false); return; }
+
+    const modules = Array.isArray(data.modules) ? data.modules : [];
+    const lessons = Array.isArray(data.lessons) ? data.lessons : [];
+    if (!modules.length && !lessons.length) {
+      ioMsg("الملف مافيهوش Modules أو Lessons.", false);
+      return;
+    }
+    if (!confirm(`استيراد ${modules.length} Module و ${lessons.length} Lesson؟ ده هيستبدل المحتوى الحالي على الجهاز ده.`)) return;
+
+    // Load into localStorage (the current storage) and re-render Content Manager.
+    saveContent(modules);
+    saveLessons(lessons);
+    CM_ITEMS = loadContent();
+    LESSON_ITEMS = loadLessons();
+    renderModuleList();
+    populateLessonModules($("lModule").value);
+    renderLessonList();
+    ioMsg(`تم الاستيراد: ${modules.length} Modules · ${lessons.length} Lessons ✓ — افتح Learning Path لرؤية المحتوى.`, true);
+  };
+  reader.readAsText(file);
+}
+
 /* Pull the latest content from the server and re-render both lists. */
 function refreshFromServer() {
   syncContentFromServer().then(ok => {
@@ -417,6 +477,14 @@ document.addEventListener("DOMContentLoaded", () => {
       renderModuleList();
     }
   }));
+
+  // ----- Export / Import content backup -----
+  $("cmExportBtn").addEventListener("click", exportContent);
+  $("cmImportBtn").addEventListener("click", () => $("cmImportFile").click());
+  $("cmImportFile").addEventListener("change", e => {
+    if (e.target.files && e.target.files[0]) importContent(e.target.files[0]);
+    e.target.value = ""; // allow re-importing the same file
+  });
 
   // ----- Initial sync from Google Sheets (falls back to cache) -----
   refreshFromServer();

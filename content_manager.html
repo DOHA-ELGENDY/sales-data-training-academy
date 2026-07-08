@@ -179,6 +179,55 @@
               <p class="cm-hint">استخدم <code># عنوان</code> · <code>## عنوان فرعي</code> · <code>- نقطة</code> · <code>1. خطوة</code></p>
             </div>
 
+            <!-- Lesson Assignment (belongs to this lesson) -->
+            <div class="field field-full cm-asg">
+              <h3 class="cm-group-title">Lesson Assignment</h3>
+              <p class="cm-hint">الـ Assignment مرتبط بالدرس الحالي. افتح درس بـ <strong>Edit</strong>، املأ الحقول، واضغط <strong>Save Assignment</strong>.</p>
+              <div class="form-grid">
+                <div class="field field-full">
+                  <label for="aTitle">Assignment Title</label>
+                  <input type="text" id="aTitle" placeholder="Assignment M1-A" />
+                </div>
+                <div class="field field-full">
+                  <label for="aInstructions">Assignment Instructions</label>
+                  <textarea id="aInstructions" class="cm-editor" rows="5"
+                    placeholder="اكتب تعليمات الـ Assignment…&#10;# عنوان&#10;- نقطة&#10;1. خطوة"></textarea>
+                </div>
+                <div class="field field-full">
+                  <label for="aDeliverables">Deliverables</label>
+                  <textarea id="aDeliverables" rows="3" placeholder="اللي المتدرب هيسلمه (ملف، لينك، إجابات…)"></textarea>
+                </div>
+                <div class="field">
+                  <label for="aTime">Estimated Time</label>
+                  <input type="text" id="aTime" placeholder="30 min, 1 hour" />
+                </div>
+                <div class="field">
+                  <label for="aMinScore">Minimum Required Score</label>
+                  <input type="text" id="aMinScore" placeholder="60%" />
+                </div>
+                <div class="field">
+                  <label for="aSubmission">Submission Type</label>
+                  <select id="aSubmission">
+                    <option value="File Link">File Link</option>
+                    <option value="Text Answer">Text Answer</option>
+                    <option value="Both">Both</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="aStatus">Status</label>
+                  <select id="aStatus">
+                    <option value="Draft">Draft</option>
+                    <option value="Published">Published</option>
+                  </select>
+                </div>
+              </div>
+              <div class="cm-form-actions">
+                <button type="button" class="btn btn-primary" id="aSaveBtn">Save Assignment</button>
+                <button type="button" class="btn btn-ghost cm-danger" id="aRemoveBtn">Remove Assignment</button>
+                <span class="form-msg" id="aMsg" role="status" aria-live="polite"></span>
+              </div>
+            </div>
+
             <!-- Attachments (stored locally as data URLs for now; Google Drive later) -->
             <div class="field field-full">
               <label>Attachments</label>

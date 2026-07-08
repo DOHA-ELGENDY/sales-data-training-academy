@@ -949,6 +949,15 @@ a.nav-item { color: #cdd8e6; }
 @media (prefers-reduced-motion: reduce) {
   .lesson-acc-caret, .lesson-acc-body { transition: none; }
 }
+/* Assignment shown under the lesson content (Learning Path) */
+.lesson-assignment { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--border); }
+.lesson-assignment > h4 {
+  font-size: 13px; text-transform: uppercase; letter-spacing: .5px;
+  color: var(--primary); margin: 0 0 8px;
+}
+.lesson-assignment > p { font-size: 14px; margin: 10px 0 4px; }
+/* Assignment group inside the lesson editor (Content Manager) */
+.cm-asg { margin-top: 6px; padding-top: 14px; border-top: 1px dashed var(--border); }
 .cm-card-title { font-size: 16px; margin-bottom: 2px; }
 .cm-card-sub { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
 .cm-card-meta { display: flex; gap: 14px; font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 6px; }

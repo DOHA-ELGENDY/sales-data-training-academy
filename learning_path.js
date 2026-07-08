@@ -152,10 +152,31 @@ function lessonView(lessons) {
       </button>
       <div class="lesson-acc-body">
         <div class="cm-rendered">${renderRichText(l.contentBody)}</div>
+        ${assignmentBlock(l.assignment)}
       </div>
     </div>`).join("");
 
   return `<div class="lesson-acc">${items}</div>`;
+}
+
+/* Lesson assignment shown under the lesson content — only when Published.
+   Returns "" when there is no assignment or it is still a Draft, so no
+   empty assignment block ever appears for employees. */
+function assignmentBlock(asg) {
+  if (!asg || asg.status !== "Published") return "";
+  const chips = [
+    asg.estTime ? `<span class="meta-chip">⏱ ${escHtml(asg.estTime)}</span>` : "",
+    asg.minScore ? `<span class="meta-chip">✅ Min ${escHtml(asg.minScore)}</span>` : "",
+    asg.submissionType ? `<span class="meta-chip">📤 ${escHtml(asg.submissionType)}</span>` : ""
+  ].filter(Boolean).join("");
+
+  return `
+    <div class="lesson-assignment">
+      <h4>Assignment${asg.title ? " — " + escHtml(asg.title) : ""}</h4>
+      ${asg.instructions ? `<div class="cm-rendered">${renderRichText(asg.instructions)}</div>` : ""}
+      ${asg.deliverables ? `<p><strong>Deliverables</strong></p><div class="cm-rendered">${renderRichText(asg.deliverables)}</div>` : ""}
+      ${chips ? `<div class="module-meta" style="margin-top:10px">${chips}</div>` : ""}
+    </div>`;
 }
 
 /* Locked module → header-only "Coming Soon" card (not expandable). */

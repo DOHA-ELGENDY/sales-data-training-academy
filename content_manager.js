@@ -233,6 +233,7 @@ function renderLessonList() {
         <span class="cm-status ${l.status === "Published" ? "is-pub" : "is-draft"}">${escHtml(l.status)}</span>
       </div>
       <h3 class="cm-card-title">${escHtml(l.lessonTitle) || "بدون عنوان"}</h3>
+      ${l.assignment ? `<div class="cm-card-updated">📋 Assignment: ${escHtml(l.assignment.status || "Draft")}${l.assignment.title ? " — " + escHtml(l.assignment.title) : ""}</div>` : ""}
       <div class="cm-card-updated">Last updated: ${escHtml(fmtDate(l.updatedAt))}</div>
       <div class="cm-card-actions">
         <button class="btn btn-ghost" data-lact="up" data-id="${l.id}" ${i === 0 ? "disabled" : ""} title="Move up">↑</button>
@@ -264,6 +265,7 @@ function clearLessonForm() {
   $("lStatus").value = "Draft";
   $("lSaveBtn").textContent = "Save Lesson";
   $("lMsg").textContent = "";
+  clearAssignmentFields();
 }
 
 function fillLessonForm(l) {
@@ -277,6 +279,7 @@ function fillLessonForm(l) {
   $("lBody").value = l.contentBody || "";
   $("lStatus").value = l.status || "Draft";
   $("lSaveBtn").textContent = "Update Lesson";
+  fillAssignmentForm(l.assignment);
   renderLessonList();
   document.querySelector("#tab-lessons").scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -344,6 +347,92 @@ function moveLesson(id, dir) {
   a.updatedAt = b.updatedAt = nowISO();
   saveLessons(LESSON_ITEMS);
   renderLessonList();
+}
+
+/* ---------- Lesson Assignment (nested inside the lesson) ---------- */
+function clearAssignmentFields() {
+  $("aTitle").value = "";
+  $("aInstructions").value = "";
+  $("aDeliverables").value = "";
+  $("aTime").value = "";
+  $("aMinScore").value = "";
+  $("aSubmission").value = "File Link";
+  $("aStatus").value = "Draft";
+  $("aMsg").textContent = "";
+}
+
+function fillAssignmentForm(asg) {
+  asg = asg || {};
+  $("aTitle").value = asg.title || "";
+  $("aInstructions").value = asg.instructions || "";
+  $("aDeliverables").value = asg.deliverables || "";
+  $("aTime").value = asg.estTime || "";
+  $("aMinScore").value = asg.minScore || "";
+  $("aSubmission").value = asg.submissionType || "File Link";
+  $("aStatus").value = asg.status || "Draft";
+  $("aMsg").textContent = "";
+}
+
+function saveAssignment() {
+  const id = $("lId").value;
+  const msg = $("aMsg");
+  const lesson = id ? LESSON_ITEMS.find(l => l.id === id) : null;
+  if (!lesson) {
+    msg.style.color = "#dc2626";
+    msg.textContent = "احفظ الدرس الأول (Save Lesson)، بعدين افتحه بـ Edit وأضف الـ Assignment.";
+    return;
+  }
+  const title = $("aTitle").value.trim();
+  const instructions = $("aInstructions").value.trim();
+  if (!title || !instructions) {
+    msg.style.color = "#dc2626";
+    msg.textContent = "Assignment Title و Instructions مطلوبين.";
+    return;
+  }
+
+  lesson.assignment = {
+    title,
+    instructions,
+    deliverables: $("aDeliverables").value.trim(),
+    estTime: $("aTime").value.trim(),
+    minScore: $("aMinScore").value.trim(),
+    submissionType: $("aSubmission").value,
+    status: $("aStatus").value,
+    updatedAt: nowISO()
+  };
+  lesson.updatedAt = nowISO();
+  saveLessons(LESSON_ITEMS);
+  pushLesson(lesson); // best-effort; localStorage stays authoritative
+  renderLessonList();
+
+  msg.style.color = "#16a34a";
+  msg.textContent = "تم حفظ الـ Assignment ✓";
+  setTimeout(() => { if (msg.textContent === "تم حفظ الـ Assignment ✓") msg.textContent = ""; }, 2500);
+}
+
+function removeAssignment() {
+  const id = $("lId").value;
+  const msg = $("aMsg");
+  const lesson = id ? LESSON_ITEMS.find(l => l.id === id) : null;
+  if (!lesson || !lesson.assignment) {
+    clearAssignmentFields();
+    msg.style.color = "#dc2626";
+    msg.textContent = "مفيش Assignment على الدرس ده.";
+    setTimeout(() => { if (msg.textContent) msg.textContent = ""; }, 2000);
+    return;
+  }
+  if (!confirm("إزالة الـ Assignment من الدرس ده؟ لا يمكن التراجع.")) return;
+
+  delete lesson.assignment;
+  lesson.updatedAt = nowISO();
+  saveLessons(LESSON_ITEMS);
+  pushLesson(lesson);
+  clearAssignmentFields();
+  renderLessonList();
+
+  msg.style.color = "#16a34a";
+  msg.textContent = "تم إزالة الـ Assignment ✓";
+  setTimeout(() => { if (msg.textContent === "تم إزالة الـ Assignment ✓") msg.textContent = ""; }, 2500);
 }
 
 function handleLessonListClick(e) {
@@ -498,6 +587,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("lessonForm").addEventListener("submit", saveLesson);
   $("lClearBtn").addEventListener("click", clearLessonForm);
   $("lessonList").addEventListener("click", handleLessonListClick);
+  $("aSaveBtn").addEventListener("click", saveAssignment);
+  $("aRemoveBtn").addEventListener("click", removeAssignment);
   $("lAcademy").addEventListener("change", () => {
     setSelectedAcademy($("lAcademy").value);
     populateLessonModules();

@@ -197,6 +197,7 @@ async function syncContentFromServer() {
         if (local) {
           if (l.order === "" && (local.order === 0 || local.order)) l.order = local.order;
           if (!l.lessonNumber && local.lessonNumber) l.lessonNumber = local.lessonNumber;
+          if (!l.assignment && local.assignment) l.assignment = local.assignment;
         }
         return l;
       });

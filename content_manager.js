@@ -980,6 +980,13 @@ document.addEventListener("DOMContentLoaded", () => {
     e.target.value = ""; // allow re-importing the same file
   });
 
+  // Deep-link: #lessons opens the Lessons tab (used by the Dashboard's
+  // "Continue Editing" quick action).
+  if (location.hash === "#lessons") {
+    const lt = document.querySelector('.cm-tab[data-tab="lessons"]');
+    if (lt) lt.click();
+  }
+
   // ----- Initial sync from Google Sheets (falls back to cache) -----
   refreshFromServer();
 });

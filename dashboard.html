@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<!--
+  Academy Dashboard — manager summary of the selected academy.
+  Read-only view built entirely from existing localStorage data
+  (academies.js). No backend / no Google Sheets.
+-->
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Academy Dashboard · Sales Data</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ============ MOBILE TOP BAR ============ -->
+  <header class="topbar">
+    <button class="menu-btn" id="menuBtn" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar">☰</button>
+    <span class="topbar-logo">SD</span>
+    <span class="topbar-title">Sales Data — Learning Center</span>
+  </header>
+
+  <div class="layout">
+
+    <!-- ============ SIDEBAR ============ -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-logo">SD</div>
+        <div class="brand-text">
+          <strong>Sales Data</strong>
+          <span>Learning Center</span>
+        </div>
+      </div>
+
+      <nav class="nav" aria-label="Main">
+        <a class="nav-item" href="index.html">
+          <span class="nav-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h5v-6h4v6h5V9.5"/></svg>
+          </span>
+          <span class="nav-label">Learning Center</span>
+        </a>
+        <a class="nav-item" href="learning_path.html">
+          <span class="nav-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="16" rx="2"/><path d="M9 5V4.2A1.2 1.2 0 0 1 10.2 3h3.6A1.2 1.2 0 0 1 15 4.2V5"/><path d="M9 11h6"/><path d="M9 15h4"/></svg>
+          </span>
+          <span class="nav-label">Learning Path</span>
+        </a>
+        <a class="nav-item" href="content_manager.html">
+          <span class="nav-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/><path d="M8 20V9"/></svg>
+          </span>
+          <span class="nav-label">Content Manager</span>
+        </a>
+        <a class="nav-item active" href="dashboard.html">
+          <span class="nav-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M2 20h20"/></svg>
+          </span>
+          <span class="nav-label">Dashboard</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="foot-progress">
+          <div class="foot-label">Overall Progress</div>
+          <div class="progress-bar"><span style="width:0%"></span></div>
+          <div class="foot-percent">0%</div>
+        </div>
+      </div>
+    </aside>
+
+    <div class="backdrop" id="backdrop"></div>
+
+    <!-- ============ MAIN CONTENT ============ -->
+    <main class="content">
+
+      <a class="back-link" href="content_manager.html" aria-label="Back to Content Manager">← Content Manager</a>
+
+      <div class="page-head reveal">
+        <h1>Academy Dashboard</h1>
+        <p class="muted" id="dashSubtitle">ملخص الأكاديمية المختارة — من بيانات الجهاز (localStorage).</p>
+      </div>
+
+      <!-- Academy selector -->
+      <div class="dash-toolbar reveal">
+        <label for="dashAcademy" class="dash-toolbar-label">Academy</label>
+        <select id="dashAcademy"></select>
+        <span class="dash-academy-name" id="dashAcademyName"></span>
+      </div>
+
+      <!-- Summary stats -->
+      <section class="reveal">
+        <h3 class="cm-list-heading">Overview</h3>
+        <div class="dash-stats" id="dashStats"></div>
+      </section>
+
+      <!-- Content completeness -->
+      <section class="reveal">
+        <h3 class="cm-list-heading">Content Completeness</h3>
+        <div class="dash-panel" id="dashCompleteness"></div>
+      </section>
+
+      <!-- Content health -->
+      <section class="reveal">
+        <h3 class="cm-list-heading">Content Health</h3>
+        <div class="dash-panel" id="dashHealth"></div>
+      </section>
+
+      <!-- Quick actions -->
+      <section class="reveal">
+        <h3 class="cm-list-heading">Quick Actions</h3>
+        <div class="dash-actions" id="dashActions"></div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="academies.js"></script>
+  <script src="script.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>

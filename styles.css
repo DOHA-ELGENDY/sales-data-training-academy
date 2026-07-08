@@ -958,6 +958,41 @@ a.nav-item { color: #cdd8e6; }
 .lesson-assignment > p { font-size: 14px; margin: 10px 0 4px; }
 /* Assignment group inside the lesson editor (Content Manager) */
 .cm-asg { margin-top: 6px; padding-top: 14px; border-top: 1px dashed var(--border); }
+
+/* ---- Academy progress summary (Learning Path top) ---- */
+.academy-progress {
+  display: grid; grid-template-columns: 1fr 1fr 1.5fr; gap: 16px; align-items: center;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px 20px; margin-bottom: 22px;
+  box-shadow: var(--shadow-sm);
+}
+.academy-progress[hidden] { display: none; }
+.ap-stat { display: flex; flex-direction: column; gap: 2px; }
+.ap-num { font-size: 22px; font-weight: 800; color: var(--text); line-height: 1.2; }
+.ap-label { font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+.ap-overall-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.ap-bar { height: 8px; background: #eef2f7; border-radius: 99px; overflow: hidden; margin-top: 8px; }
+.ap-bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--primary)); border-radius: 99px; transition: width .45s var(--ease); }
+@media (max-width: 620px) { .academy-progress { grid-template-columns: 1fr 1fr; } .ap-overall { grid-column: 1 / -1; } }
+
+/* ---- Module progress (inside module head) ---- */
+.mod-progress { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.mod-progress-label { font-size: 12px; font-weight: 700; color: var(--muted); white-space: nowrap; }
+.mod-bar { flex: 1; max-width: 220px; height: 6px; background: #eef2f7; border-radius: 99px; overflow: hidden; }
+.mod-bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--primary)); border-radius: 99px; transition: width .45s var(--ease); }
+
+/* ---- Lesson completion (Learning Path) ---- */
+.lesson-check, .lesson-dot { display: none; margin-inline-end: 6px; font-weight: 700; }
+.lesson-acc-item.is-completed .lesson-check { display: inline; color: var(--success); }
+.lesson-acc-item.is-inprogress .lesson-dot { display: inline; color: var(--warn); font-size: 10px; }
+.lesson-complete { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--border); }
+.lesson-complete-btn { font-size: 14px; padding: 10px 18px; }
+.lesson-complete-btn.is-done,
+.lesson-complete-btn.is-done:disabled,
+.lesson-complete-btn.is-done:disabled:hover {
+  opacity: 1; cursor: default; background: #e7f6ee; color: var(--success);
+  box-shadow: none; transform: none;
+}
 .cm-card-title { font-size: 16px; margin-bottom: 2px; }
 .cm-card-sub { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
 .cm-card-meta { display: flex; gap: 14px; font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 6px; }

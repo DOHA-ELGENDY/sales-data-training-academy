@@ -128,6 +128,58 @@ function publishedLessonsForModule(moduleId) {
     .sort(compareLessons);
 }
 
+/* ---------- Lesson completion / progress (employee side) ----------
+   Progress is kept SEPARATED BY ACADEMY so switching teams shows the right
+   numbers. Shape: { [academyKey]: { [lessonId]: "in-progress" | "completed" } }.
+   A lesson not present is "not-started". localStorage for now — this same
+   shape is what will later sync to Google Sheets. */
+const PROGRESS_KEY = "sdta_progress_v1";
+function loadProgress() {
+  try {
+    const raw = localStorage.getItem(PROGRESS_KEY);
+    if (raw) return JSON.parse(raw) || {};
+  } catch (e) { /* ignore corrupt storage */ }
+  return {};
+}
+function saveProgress(obj) { localStorage.setItem(PROGRESS_KEY, JSON.stringify(obj)); }
+
+function getLessonStatus(academyKey, lessonId) {
+  const p = loadProgress();
+  return (p[academyKey] && p[academyKey][lessonId]) || "not-started";
+}
+function isLessonCompleted(academyKey, lessonId) {
+  return getLessonStatus(academyKey, lessonId) === "completed";
+}
+/* Set a lesson's status for an academy. "not-started" clears the entry. */
+function setLessonStatus(academyKey, lessonId, status) {
+  const p = loadProgress();
+  if (!p[academyKey]) p[academyKey] = {};
+  if (status === "not-started") delete p[academyKey][lessonId];
+  else p[academyKey][lessonId] = status;
+  saveProgress(p);
+}
+
+/* Completed / total Published lessons for one module (what the employee sees). */
+function moduleProgress(academyKey, moduleId) {
+  const lessons = publishedLessonsForModule(moduleId);
+  const done = lessons.filter(l => isLessonCompleted(academyKey, l.id)).length;
+  return { done, total: lessons.length };
+}
+
+/* Academy-wide progress across a team's Published modules.
+   A module counts as "completed" when all its Published lessons are done.
+   Empty modules (no Published lessons) are excluded from the module tally. */
+function academyProgress(academyKey) {
+  let lessonsDone = 0, lessonsTotal = 0, modulesDone = 0, modulesTotal = 0;
+  publishedFor(academyKey).forEach(m => {
+    const { done, total } = moduleProgress(academyKey, m.id);
+    lessonsDone += done; lessonsTotal += total;
+    if (total > 0) { modulesTotal++; if (done === total) modulesDone++; }
+  });
+  const percent = lessonsTotal ? Math.round((lessonsDone / lessonsTotal) * 100) : 0;
+  return { lessonsDone, lessonsTotal, modulesDone, modulesTotal, percent };
+}
+
 /* ============================================================
    REMOTE BACKEND (Google Sheets via Apps Script Web App)
    ------------------------------------------------------------

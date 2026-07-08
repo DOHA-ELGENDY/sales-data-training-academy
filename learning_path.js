@@ -37,7 +37,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Render from the local cache first (instant), then sync with Google Sheets.
   renderCmModules(teamKey, ac);
-  syncContentFromServer().then(ok => { if (ok) renderCmModules(teamKey, ac); });
+  renderAcademyProgress(teamKey);
+  syncContentFromServer().then(ok => {
+    if (ok) { renderCmModules(teamKey, ac); renderAcademyProgress(teamKey); }
+  });
 
   // Lesson accordion: expand the clicked lesson, collapse the rest in that
   // module (one open at a time). Scoped to the module's own .lesson-acc.
@@ -53,9 +56,81 @@ document.addEventListener("DOMContentLoaded", () => {
       const h = it.querySelector("[data-lesson-toggle]");
       if (h) h.setAttribute("aria-expanded", "false");
     });
-    if (willOpen) { item.classList.add("open"); head.setAttribute("aria-expanded", "true"); }
+    if (willOpen) {
+      item.classList.add("open");
+      head.setAttribute("aria-expanded", "true");
+      // Opening a not-yet-completed lesson marks it "In Progress".
+      const id = item.getAttribute("data-lesson-id");
+      if (id && !isLessonCompleted(teamKey, id)) {
+        setLessonStatus(teamKey, id, "in-progress");
+        item.classList.add("is-inprogress");
+      }
+    }
+  });
+
+  // "Mark Lesson as Completed" — record completion and refresh the counters
+  // in place (no full re-render, so the open lesson stays open).
+  container.addEventListener("click", e => {
+    const btn = e.target.closest("[data-complete]");
+    if (!btn || !container.contains(btn)) return;
+    markLessonCompleted(btn.getAttribute("data-complete"), teamKey, btn);
   });
 });
+
+/* Record a lesson as completed and update the lesson row + progress meters. */
+function markLessonCompleted(lessonId, teamKey, btn) {
+  setLessonStatus(teamKey, lessonId, "completed");
+
+  const item = btn.closest(".lesson-acc-item");
+  if (item) { item.classList.remove("is-inprogress"); item.classList.add("is-completed"); }
+  btn.disabled = true;
+  btn.classList.remove("btn-primary");
+  btn.classList.add("is-done");
+  btn.textContent = "✓ Lesson Completed";
+
+  // Refresh this module's counter, then the academy summary.
+  const card = btn.closest(".level-card");
+  if (card) {
+    const moduleId = card.getAttribute("data-module-id");
+    const el = card.querySelector(".mod-progress");
+    if (moduleId && el) {
+      const { done, total } = moduleProgress(teamKey, moduleId);
+      if (total) el.innerHTML = moduleProgressMarkup(done, total);
+    }
+  }
+  renderAcademyProgress(teamKey);
+}
+
+/* Academy progress summary at the top of the Learning Path. */
+function renderAcademyProgress(teamKey) {
+  const el = document.getElementById("academyProgress");
+  if (!el) return;
+  const p = academyProgress(teamKey);
+  if (!p.lessonsTotal) { el.hidden = true; el.innerHTML = ""; return; }
+  el.hidden = false;
+  el.innerHTML = `
+    <div class="ap-stat">
+      <span class="ap-num">${p.lessonsDone} / ${p.lessonsTotal}</span>
+      <span class="ap-label">Lessons Completed</span>
+    </div>
+    <div class="ap-stat">
+      <span class="ap-num">${p.modulesDone} / ${p.modulesTotal}</span>
+      <span class="ap-label">Modules Completed</span>
+    </div>
+    <div class="ap-stat ap-overall">
+      <div class="ap-overall-top">
+        <span class="ap-label">Overall Progress</span>
+        <span class="ap-num">${p.percent}%</span>
+      </div>
+      <div class="ap-bar"><span style="width:${p.percent}%"></span></div>
+    </div>`;
+
+  // Mirror into the sidebar "Overall Progress" widget.
+  const footPct = document.querySelector(".foot-percent");
+  const footBar = document.querySelector(".foot-progress .progress-bar span");
+  if (footPct) footPct.textContent = p.percent + "%";
+  if (footBar) footBar.style.width = p.percent + "%";
+}
 
 /* Render (or re-render) the Content-Manager modules for a team.
    Removes previously CM-added cards, then appends the current set. */
@@ -114,7 +189,7 @@ function moduleCard(m) {
   const lessons = publishedLessonsForModule(m.id);
   let body;
   if (lessons.length) {
-    body = lessonView(lessons);
+    body = lessonView(lessons, m.academyKey);
   } else if (m.content || assignment || resources) {
     // Backward-compat for any legacy module-level content.
     const content = m.content ? `<h4>Learning Content</h4><div class="cm-rendered">${renderRichText(m.content)}</div>` : "";
@@ -123,14 +198,20 @@ function moduleCard(m) {
     body = `<p class="muted" style="font-size:14px">المحتوى التفصيلي هيتضاف قريبًا.</p>`;
   }
 
+  const prog = moduleProgress(m.academyKey, m.id);
+  const progRow = prog.total
+    ? `<div class="mod-progress" id="prog-cm-${m.id}">${moduleProgressMarkup(prog.done, prog.total)}</div>`
+    : "";
+
   return `
-    <div class="level-card cm-added reveal">
+    <div class="level-card cm-added reveal" data-module-id="${m.id}">
       <div class="level-head" data-acc-toggle role="button" tabindex="0"
            aria-expanded="false" aria-controls="${bodyId}">
         <div class="level-badge">M${escHtml(m.moduleNumber)}</div>
         <div class="level-head-text">
           <h3>Module ${escHtml(m.moduleNumber)} — ${escHtml(m.moduleTitle)}</h3>
           ${subtitle ? `<p>${escHtml(subtitle)}</p>` : ""}
+          ${progRow}
         </div>
         <div class="level-toggle" aria-hidden="true">▾</div>
       </div>
@@ -141,20 +222,41 @@ function moduleCard(m) {
     </div>`;
 }
 
+/* Compact "done / total Lessons" label + mini bar for a module head. */
+function moduleProgressMarkup(done, total) {
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  return `
+    <span class="mod-progress-label">${done} / ${total} Lessons</span>
+    <div class="mod-bar"><span style="width:${pct}%"></span></div>`;
+}
+
 /* Lessons as child accordions inside a module. Each lesson collapses/expands
    like the module itself; only one lesson is open at a time (per module). */
-function lessonView(lessons) {
-  const items = lessons.map((l, i) => `
-    <div class="lesson-acc-item">
+function lessonView(lessons, academyKey) {
+  const items = lessons.map((l, i) => {
+    const status = getLessonStatus(academyKey, l.id);
+    const completed = status === "completed";
+    const stateClass = completed ? "is-completed" : (status === "in-progress" ? "is-inprogress" : "");
+    return `
+    <div class="lesson-acc-item ${stateClass}" data-lesson-id="${escHtml(l.id)}">
       <button type="button" class="lesson-acc-head" data-lesson-toggle aria-expanded="false">
-        <span class="lesson-acc-title">Lesson ${escHtml(l.lessonNumber) || (i + 1)} — ${escHtml(l.lessonTitle || l.contentType)}</span>
+        <span class="lesson-acc-title">
+          <span class="lesson-check" aria-hidden="true">✓</span><span class="lesson-dot" aria-hidden="true">●</span>Lesson ${escHtml(l.lessonNumber) || (i + 1)} — ${escHtml(l.lessonTitle || l.contentType)}
+        </span>
         <span class="lesson-acc-caret" aria-hidden="true">▾</span>
       </button>
       <div class="lesson-acc-body">
         <div class="cm-rendered">${renderRichText(l.contentBody)}</div>
         ${assignmentBlock(l.assignment)}
+        <div class="lesson-complete">
+          <button type="button" class="btn ${completed ? "is-done" : "btn-primary"} lesson-complete-btn"
+                  data-complete="${escHtml(l.id)}" ${completed ? "disabled" : ""}>
+            ${completed ? "✓ Lesson Completed" : "Mark Lesson as Completed"}
+          </button>
+        </div>
       </div>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 
   return `<div class="lesson-acc">${items}</div>`;
 }

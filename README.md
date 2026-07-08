@@ -1,7 +1,9 @@
 # Sales Data Team — Learning Center
 
-A simple, professional, front-end-only Learning Center for the Sales Division.
-No backend, no database, no login, no frameworks. Just open `index.html`.
+A professional Learning Center + Content Manager for the Sales Division.
+Static front-end (no build step, no framework) backed by **Supabase** (Postgres)
+for shared content storage, deployed on Render. `localStorage` is used as a
+cache / offline fallback.
 
 Multi-page experience — each major step is its own HTML page. Navigation uses
 real page links (not scrolling between sections).
@@ -17,8 +19,12 @@ real page links (not scrolling between sections).
 | `module_template.html` | Reference: accordion module-item template for future modules |
 | `styles.css` | Shared styling (corporate look, responsive, RTL) |
 | `script.js` | Shared logic (mobile sidebar, reveal, accordion, form submission) |
-| `Code.gs` | Google Apps Script Web App (server side) |
-| `GOOGLE_SHEETS_SETUP.md` | How to deploy the Google Sheets integration |
+| `content_manager.html` | **Content Manager** — author academies, modules, lessons, assignments, activities |
+| `dashboard.html` | **Academy Dashboard** — manager stats, content health, completeness |
+| `academies.js` | Shared data model, cache, and Supabase sync |
+| `supabase.js` | Supabase REST API layer (content CRUD + submissions) |
+| `supabase_schema.sql` | Database schema (tables, RLS, seed) |
+| `SUPABASE_BACKEND.md` | How to set up and connect the Supabase backend |
 | `README.md` | This file |
 
 ## Flow
@@ -41,18 +47,21 @@ Soon** headers. Sales Team and Sales Accounting Team also appear as Coming Soon.
 
 Double-click **`index.html`** (or open it in any browser). That's it.
 
-## Google Sheets integration
+## Backend (Supabase)
 
-The submission form on `assignment_M0.html` posts to Google Sheets via an Apps
-Script Web App. The Web App URL lives in **one place**:
+All Academy content (academies, modules, lessons, assignments, activities) is
+stored in **Supabase** (Postgres) and read/written directly from the browser via
+its REST API. Configure the project in **one place**:
 
 ```js
-// script.js
-const GOOGLE_SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/.../exec";
+// supabase.js
+const SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";
+const SUPABASE_ANON_KEY = "eyJ...";
 ```
 
-On a successful submit the browser navigates to `submission_success.html`.
-Full deployment steps: see **`GOOGLE_SHEETS_SETUP.md`**.
+Run `supabase_schema.sql` once in the Supabase SQL editor to create the tables.
+Assignment submissions (`assignment_M0.html`) go to the `submissions` table.
+Full setup: see **`SUPABASE_BACKEND.md`**.
 
 ## Module accordion template
 

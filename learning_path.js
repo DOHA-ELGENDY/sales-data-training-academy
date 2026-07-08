@@ -420,7 +420,7 @@ function logLessonDiagnostics(teamKey) {
       allLessons.map(l => ({ id: l.id, moduleId: l.moduleId, title: l.lessonTitle, type: l.contentType, status: l.status })));
 
     if (!teamModules.length) {
-      console.warn("→ No modules for this team ON THIS DEVICE. If you created them on another laptop, localStorage does NOT sync — use Content Manager → Import Content here, or deploy the Apps Script backend.");
+      console.warn("→ No modules cached for this team yet. They load from Supabase — check the SUPABASE_URL / anon key in supabase.js, then refresh.");
     }
     teamModules.forEach(m => {
       const linked = allLessons.filter(l => l.moduleId === m.id);

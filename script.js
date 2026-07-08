@@ -4,13 +4,13 @@
    ============================================================ */
 
 /* ============================================================
-   GOOGLE SHEETS CONNECTION
+   BACKEND CONNECTION
    ------------------------------------------------------------
-   Web App URL for the Assignment submission (used on
-   assignment_M0.html). Leave "" to keep the form in demo mode.
-   Setup: see GOOGLE_SHEETS_SETUP.md
+   Assignment submissions (assignment_M0.html) are stored in Supabase
+   via the API layer in supabase.js (window.SB). Configure the project
+   URL + anon key in supabase.js. If it isn't configured the form runs
+   in demo mode. Setup: see SUPABASE_BACKEND.md
    ============================================================ */
-const GOOGLE_SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxE73p1e0ckD04kLWwpLFf7P_n8fmcqwl_OAA1e6dEH1WjvObkuhGKgyTOWvas0Y8wh/exec";
 
 /* Where to go after a successful submission. */
 const SUCCESS_PAGE = "submission_success.html";
@@ -66,10 +66,9 @@ async function handleSubmit(e) {
     return;
   }
 
-  /* GOOGLE_SHEETS_HOOK
-     If no URL is set, stay in demo mode but still go to the success page. */
-  if (!GOOGLE_SHEETS_WEB_APP_URL) {
-    console.log("Submission (demo — no URL set):", data);
+  /* If Supabase isn't configured, stay in demo mode but still confirm. */
+  if (typeof SB === "undefined" || !SB.enabled()) {
+    console.log("Submission (demo — Supabase not configured):", data);
     window.location.href = SUCCESS_PAGE;
     return;
   }
@@ -79,15 +78,7 @@ async function handleSubmit(e) {
   if (submitBtn) submitBtn.disabled = true;
 
   try {
-    /* no-cors + text/plain avoids a CORS preflight (Apps Script Web Apps
-       don't handle it well). We can't read the response, so once the
-       request completes we move on to the confirmation page. */
-    await fetch(GOOGLE_SHEETS_WEB_APP_URL, {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(data)
-    });
+    await SB.insertSubmission(data);
     window.location.href = SUCCESS_PAGE;
   } catch (err) {
     console.error("Submit failed:", err);

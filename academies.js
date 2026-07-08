@@ -225,25 +225,27 @@ function setResponse(academyKey, activityId, value) {
 }
 
 /* ============================================================
-   REMOTE BACKEND — Google Sheets via Apps Script Web App (Sprint 2)
+   REMOTE BACKEND — Supabase (Postgres + PostgREST)  [production]
    ------------------------------------------------------------
-   Google Sheets is the PRIMARY content store; localStorage is a
-   cache + offline fallback.
-   - Read:  JSONP GET  ?action=getAll       → refreshes the cache.
-   - Write: no-cors POST {action, item|id}  → persists to the Sheet.
-     Writes are optimistic (cache first); failed writes are queued in
-     an outbox and retried on next load / when the browser is back online.
-   - First run against an empty Sheet with existing local data seeds
-     the Sheet from the cache (one-time migration).
-   Empty URL = demo mode (localStorage only). Setup + deploy steps:
-   see GOOGLE_SHEETS_BACKEND.md.
+   Supabase is the PRIMARY content store; localStorage is a cache +
+   offline fallback. All Supabase access goes through the API layer in
+   supabase.js (window.SB), which uses plain fetch (real CORS, readable
+   responses — no JSONP / no no-cors).
+   - Read:  SB.fetchModules() / SB.fetchLessons() → refreshes the cache.
+   - Write: SB.upsert*/delete* → persists directly to Supabase.
+     Writes are optimistic (cache first); a failed write is queued in an
+     outbox and retried on next load / when the browser is back online.
+   - First run against an empty database with existing local data seeds
+     it from the cache (one-time migration).
+   Not configured (empty keys) = demo mode (localStorage only).
+   Setup + schema: see SUPABASE_BACKEND.md and supabase_schema.sql.
    ============================================================ */
-const CONTENT_API_URL = "https://script.google.com/macros/s/AKfycbxE73p1e0ckD04kLWwpLFf7P_n8fmcqwl_OAA1e6dEH1WjvObkuhGKgyTOWvas0Y8wh/exec";
 let remoteContentReady = false;
+function backendReady() { return (typeof SB !== "undefined") && SB && SB.enabled(); }
 
 function s_(v) { return (v === 0 || v) ? String(v) : ""; }
-/* Accepts a value that may already be an object/array, a JSON string (as the
-   Sheet stores nested fields), or empty — returns the parsed value. */
+/* Accepts a value that may already be an object/array, a JSON string, or
+   empty — returns the parsed value. */
 function parseMaybe(v, fallback) {
   if (v == null || v === "") return fallback;
   if (typeof v === "string") { try { return JSON.parse(v); } catch (e) { return fallback; } }
@@ -273,28 +275,8 @@ function normLesson(l) {
   };
 }
 
-/* JSONP GET — reads cross-origin via a <script> tag, so it works from the
-   live Render site with NO CORS setup on Apps Script. */
-function jsonp(action) {
-  return new Promise((resolve, reject) => {
-    if (!CONTENT_API_URL) { reject(new Error("no-url")); return; }
-    const cb = "__cmcb_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
-    const script = document.createElement("script");
-    let done = false;
-    const cleanup = () => {
-      try { delete window[cb]; } catch (e) { window[cb] = undefined; }
-      if (script.parentNode) script.parentNode.removeChild(script);
-    };
-    window[cb] = (data) => { done = true; cleanup(); resolve(data); };
-    script.onerror = () => { if (!done) { cleanup(); reject(new Error("jsonp-error")); } };
-    script.src = CONTENT_API_URL + "?action=" + encodeURIComponent(action) + "&callback=" + cb;
-    document.head.appendChild(script);
-    setTimeout(() => { if (!done) { cleanup(); reject(new Error("jsonp-timeout")); } }, 15000);
-  });
-}
-
 /* ---------- Offline write queue (outbox) ----------
-   Writes that fail (offline / server unreachable) are stored here and
+   Writes that fail (offline / Supabase unreachable) are stored here and
    retried on the next load and whenever the browser comes back online. */
 const OUTBOX_KEY = "sdta_outbox_v1";
 function loadOutbox() { try { return JSON.parse(localStorage.getItem(OUTBOX_KEY)) || []; } catch (e) { return []; } }
@@ -302,36 +284,41 @@ function saveOutbox(q) { localStorage.setItem(OUTBOX_KEY, JSON.stringify(q)); }
 function queueWrite(payload) { const q = loadOutbox(); q.push(payload); saveOutbox(q); }
 function outboxCount() { return loadOutbox().length; }
 
-function sendPost(payload) {
-  return fetch(CONTENT_API_URL, {
-    method: "POST", mode: "no-cors",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(payload)
-  });
+/* Apply one queued write against Supabase. */
+function applyWrite(p) {
+  switch (p.action) {
+    case "saveModule": return SB.upsertModule(p.item);
+    case "saveLesson": return SB.upsertLesson(p.item);
+    case "deleteModule": return SB.deleteModule(p.id);
+    case "deleteLesson": return SB.deleteLesson(p.id);
+    case "bulkSave": return SB.bulkUpsert(p.modules || [], p.lessons || []);
+    default: return Promise.resolve();
+  }
 }
 
 /* Retry every queued write in order; anything still failing stays queued. */
 async function flushOutbox() {
-  if (!CONTENT_API_URL) return;
+  if (!backendReady()) return;
   const q = loadOutbox();
   if (!q.length) return;
   const remaining = [];
   for (const payload of q) {
-    try { await sendPost(payload); }
+    try { await applyWrite(payload); }
     catch (e) { remaining.push(payload); }
   }
   saveOutbox(remaining);
 }
 
-/* Persist a write to the Sheet. The caller has already written to the local
+/* Persist a write to Supabase. The caller has already written to the local
    cache (optimistic); on network failure the write is queued for later. */
 async function postContent(payload) {
-  if (!CONTENT_API_URL) { queueWrite(payload); return false; }
+  if (!backendReady()) { queueWrite(payload); return false; }
   try {
     await flushOutbox();      // drain any pending writes first (preserve order)
-    await sendPost(payload);
+    await applyWrite(payload);
     return true;
   } catch (err) {
+    console.warn("Supabase write failed — queued for retry.", err);
     queueWrite(payload);      // offline / unreachable — retry later
     return false;
   }
@@ -341,41 +328,36 @@ function pushLesson(item) { return postContent({ action: "saveLesson", item }); 
 function deleteModuleRemote(id) { return postContent({ action: "deleteModule", id }); }
 function deleteLessonRemote(id) { return postContent({ action: "deleteLesson", id }); }
 
-/* One-time seed: push whatever is already in localStorage up to an empty Sheet. */
+/* One-time seed: push whatever is already in localStorage up to an empty database. */
 async function migrateLocalToServer(modules, lessons) {
-  const payload = { action: "bulkSave", modules: modules, lessons: lessons };
-  try { await sendPost(payload); return true; }
-  catch (e) { queueWrite(payload); return false; }
+  try { await SB.bulkUpsert(modules, lessons); return true; }
+  catch (e) { queueWrite({ action: "bulkSave", modules: modules, lessons: lessons }); return false; }
 }
 
-/* Pull everything from the Sheet into the local cache. Google Sheets is the
-   source of truth for reads; returns true on success, false when offline
-   (in which case the caller keeps using the local cache). */
+/* Pull all content from Supabase into the local cache. Supabase is the source
+   of truth for reads; returns true on success, false when offline (in which
+   case the caller keeps using the local cache). */
 async function syncContentFromServer() {
-  if (!CONTENT_API_URL) return false;
+  if (!backendReady()) return false;
   await flushOutbox(); // push pending offline writes before reading fresh state
   try {
-    const res = await jsonp("getAll");
-    if (res && res.result === "success") {
-      remoteContentReady = true;
-      const serverModules = (res.modules || []).map(normModule);
-      const serverLessons = (res.lessons || []).map(normLesson);
-      const localModules = loadContent();
-      const localLessons = loadLessons();
-      // First run against an empty Sheet but with existing local data → seed it
-      // and keep the local cache (it has just become the server's content).
-      if (!serverModules.length && !serverLessons.length && (localModules.length || localLessons.length)) {
-        await migrateLocalToServer(localModules, localLessons);
-        return true;
-      }
-      saveContent(serverModules);
-      saveLessons(serverLessons);
+    const [modules, lessons] = await Promise.all([SB.fetchModules(), SB.fetchLessons()]);
+    remoteContentReady = true;
+    const localModules = loadContent();
+    const localLessons = loadLessons();
+    // First run against an empty database but with existing local data → seed it
+    // and keep the local cache (it has just become the server's content).
+    if (!modules.length && !lessons.length && (localModules.length || localLessons.length)) {
+      await migrateLocalToServer(localModules, localLessons);
       return true;
     }
+    saveContent(modules.map(normModule));
+    saveLessons(lessons.map(normLesson));
+    return true;
   } catch (err) {
-    console.warn("Content sync failed — using local cache.", err);
+    console.warn("Supabase sync failed — using local cache.", err);
+    return false;
   }
-  return false;
 }
 
 /* Retry queued writes as soon as connectivity returns. */

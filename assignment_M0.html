@@ -175,9 +175,10 @@
 
         <!--
           ============================================================
-          This form posts to Google Sheets via Apps Script.
-          Config lives in script.js → GOOGLE_SHEETS_WEB_APP_URL.
-          On success it redirects to submission_success.html.
+          This form saves the submission to Supabase (submissions table)
+          via the API layer in supabase.js (SB.insertSubmission).
+          Config lives in supabase.js. On success it redirects to
+          submission_success.html.
           ============================================================
         -->
         <form id="assignmentForm" class="form-grid">
@@ -212,6 +213,7 @@
     </main>
   </div>
 
+  <script src="supabase.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

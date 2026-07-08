@@ -1034,6 +1034,24 @@ a.nav-item { color: #cdd8e6; }
 .lp-act-short:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px rgba(37, 99, 235, .12); }
 .lp-act-saved { font-size: 12px; color: var(--success); font-weight: 700; margin-top: 8px; min-height: 14px; }
 
+/* ---- Learning Objectives editor (Module form) ---- */
+.cm-obj-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.cm-obj-row { display: flex; align-items: center; gap: 8px; }
+.cm-obj-bullet { color: var(--primary); font-weight: 800; font-size: 16px; flex-shrink: 0; }
+.cm-obj-row .cm-obj-text { flex: 1; }
+.cm-obj-row .cm-obj-del { padding: 6px 11px; font-size: 13px; flex-shrink: 0; }
+
+/* ---- Module Overview (Learning Path) ---- */
+.module-overview {
+  background: #fbfcfe; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 16px;
+}
+.module-overview > *:first-child { margin-top: 0; }
+.level-body .module-lessons-title {
+  font-size: 13px; text-transform: uppercase; letter-spacing: .5px;
+  color: var(--primary); margin: 6px 0 10px;
+}
+
 /* ---- Academy progress summary (Learning Path top) ---- */
 .academy-progress {
   display: grid; grid-template-columns: 1fr 1fr 1.5fr; gap: 16px; align-items: center;

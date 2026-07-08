@@ -14,6 +14,9 @@ const $ = (id) => document.getElementById(id);
    Kept in memory so the tree survives live re-renders. */
 const CM_TREE_COLLAPSED = new Set();
 
+/* Learning Objectives rows for the module currently in the Module form. */
+let MOD_OBJECTIVES = [""];
+
 function uid() {
   return "c" + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
 }
@@ -68,6 +71,31 @@ function renderModuleList() {
 }
 
 /* ---------- Form ---------- */
+/* ---- Learning Objectives editor (Module form) ---- */
+function renderObjectives() {
+  const host = $("mObjectives");
+  if (!host) return;
+  if (!MOD_OBJECTIVES.length) MOD_OBJECTIVES = [""];
+  host.innerHTML = MOD_OBJECTIVES.map((o, i) => `
+    <div class="cm-obj-row" data-i="${i}">
+      <span class="cm-obj-bullet" aria-hidden="true">•</span>
+      <input type="text" class="cm-obj-text" value="${escHtml(o)}" placeholder="هدف تعليمي…" />
+      <button type="button" class="btn btn-ghost cm-obj-del" title="Remove">✕</button>
+    </div>`).join("");
+}
+function onObjInput(e) {
+  const t = e.target.closest(".cm-obj-text");
+  if (!t) return;
+  MOD_OBJECTIVES[Number(t.closest(".cm-obj-row").dataset.i)] = t.value;
+}
+function onObjClick(e) {
+  const del = e.target.closest(".cm-obj-del");
+  if (!del) return;
+  MOD_OBJECTIVES.splice(Number(del.closest(".cm-obj-row").dataset.i), 1);
+  if (!MOD_OBJECTIVES.length) MOD_OBJECTIVES = [""];
+  renderObjectives();
+}
+
 function resetForm() {
   $("mId").value = "";
   $("mNumber").value = "";
@@ -75,7 +103,10 @@ function resetForm() {
   $("mDesc").value = "";
   $("mTime").value = "";
   $("mDiff").value = "Foundation";
+  $("mPrereq").value = "";
   $("mStatus").value = "Draft";
+  MOD_OBJECTIVES = [""];
+  renderObjectives();
   $("mSaveBtn").textContent = "Save Module";
   $("mResetBtn").hidden = true;
   $("mMsg").textContent = "";
@@ -89,7 +120,10 @@ function fillForm(it) {
   $("mDesc").value = it.shortDesc || "";
   $("mTime").value = it.studyTime || "";
   $("mDiff").value = it.difficulty || "Foundation";
+  $("mPrereq").value = it.prerequisites || "";
   $("mStatus").value = it.status || "Draft";
+  MOD_OBJECTIVES = (Array.isArray(it.objectives) && it.objectives.length) ? it.objectives.slice() : [""];
+  renderObjectives();
   $("mSaveBtn").textContent = "Update Module";
   $("mResetBtn").hidden = false;
   $("mMsg").textContent = "";
@@ -116,8 +150,10 @@ function saveModule(e) {
     moduleNumber: number,
     moduleTitle: title,
     shortDesc: $("mDesc").value.trim(),
+    objectives: MOD_OBJECTIVES.map(o => o.trim()).filter(Boolean),
     studyTime: $("mTime").value.trim(),
     difficulty: $("mDiff").value,
+    prerequisites: $("mPrereq").value.trim(),
     status: $("mStatus").value,
     updatedAt: nowISO()
   });
@@ -874,6 +910,10 @@ document.addEventListener("DOMContentLoaded", () => {
   $("moduleForm").addEventListener("submit", saveModule);
   $("mResetBtn").addEventListener("click", resetForm);
   $("moduleList").addEventListener("click", handleListClick);
+  $("mAddObj").addEventListener("click", () => { MOD_OBJECTIVES.push(""); renderObjectives(); });
+  $("mObjectives").addEventListener("input", onObjInput);
+  $("mObjectives").addEventListener("click", onObjClick);
+  renderObjectives();
   $("mAcademy").addEventListener("change", () => {
     setSelectedAcademy($("mAcademy").value);
     resetForm();

@@ -115,18 +115,28 @@
               <label for="mDesc">Short Description</label>
               <input type="text" id="mDesc" placeholder="جملة قصيرة توضح الموديول" />
             </div>
+            <div class="field field-full">
+              <label>Learning Objectives</label>
+              <div id="mObjectives" class="cm-obj-list"></div>
+              <button type="button" class="btn btn-ghost" id="mAddObj">+ Add Objective</button>
+              <p class="cm-hint">أضف الأهداف كنقاط. زرار ✕ بيشيل النقطة.</p>
+            </div>
             <div class="field">
-              <label for="mTime">Estimated Time</label>
+              <label for="mTime">Estimated Duration</label>
               <input type="text" id="mTime" placeholder="30 min, 1 hour" />
             </div>
             <div class="field">
-              <label for="mDiff">Difficulty</label>
+              <label for="mDiff">Difficulty Level</label>
               <select id="mDiff">
                 <option value="Foundation">Foundation</option>
                 <option value="Beginner">Beginner</option>
                 <option value="Intermediate">Intermediate</option>
                 <option value="Advanced">Advanced</option>
               </select>
+            </div>
+            <div class="field field-full">
+              <label for="mPrereq">Prerequisites</label>
+              <input type="text" id="mPrereq" placeholder="مثال: إتمام Module 1، معرفة أساسية بـ Excel (اختياري)" />
             </div>
             <div class="field">
               <label for="mStatus">Status</label>

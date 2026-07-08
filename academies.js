@@ -241,8 +241,10 @@ function s_(v) { return (v === 0 || v) ? String(v) : ""; }
 function normModule(m) {
   return {
     id: s_(m.id), academyKey: s_(m.academyKey), moduleNumber: s_(m.moduleNumber),
-    moduleTitle: s_(m.moduleTitle), shortDesc: s_(m.shortDesc), studyTime: s_(m.studyTime),
-    difficulty: s_(m.difficulty), status: s_(m.status) || "Draft", updatedAt: s_(m.updatedAt)
+    moduleTitle: s_(m.moduleTitle), shortDesc: s_(m.shortDesc),
+    objectives: Array.isArray(m.objectives) ? m.objectives.map(s_) : [],
+    studyTime: s_(m.studyTime), difficulty: s_(m.difficulty),
+    prerequisites: s_(m.prerequisites), status: s_(m.status) || "Draft", updatedAt: s_(m.updatedAt)
   };
 }
 function normLesson(l) {
@@ -283,7 +285,19 @@ async function syncContentFromServer() {
     const [mRes, lRes] = await Promise.all([jsonp("getModules"), jsonp("getLessons")]);
     if (mRes && mRes.result === "success" && lRes && lRes.result === "success") {
       remoteContentReady = true;
-      saveContent((mRes.modules || []).map(normModule));
+      // Module-level objectives/prerequisites are managed locally for now (no
+      // Sheet columns yet). Preserve them across a sync so they aren't lost.
+      const localModById = {};
+      loadContent().forEach(m => { localModById[m.id] = m; });
+      const modules = (mRes.modules || []).map(normModule).map(m => {
+        const local = localModById[m.id];
+        if (local) {
+          if ((!m.objectives || !m.objectives.length) && local.objectives && local.objectives.length) m.objectives = local.objectives;
+          if (!m.prerequisites && local.prerequisites) m.prerequisites = local.prerequisites;
+        }
+        return m;
+      });
+      saveContent(modules);
       // Lesson ordering/number are managed locally for now (no Sheet columns
       // yet). Preserve them across a sync so reordering isn't lost.
       const localById = {};

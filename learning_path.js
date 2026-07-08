@@ -179,10 +179,6 @@ function renderCmModules(teamKey, ac) {
 function moduleCard(m) {
   const bodyId = "body-cm-" + m.id;
   const subtitle = m.shortDesc || m.lessonTitle || "";
-  const chips = [
-    m.studyTime ? `<span class="meta-chip">⏱ ${escHtml(m.studyTime)}</span>` : "",
-    m.difficulty ? `<span class="meta-chip">📊 ${escHtml(m.difficulty)}</span>` : ""
-  ].join("");
 
   const assignment = (m.asgTitle || m.asgObjective || m.asgInstructions || m.asgDeliverables) ? `
     <h4>Assignment</h4>
@@ -200,18 +196,22 @@ function moduleCard(m) {
   ].filter(Boolean).join("");
   const resources = resItems ? `<h4>Resources</h4><ul>${resItems}</ul>` : "";
 
+  // Module Overview (description, objectives, duration, difficulty, prerequisites).
+  const overview = moduleOverview(m);
+
   // Published lessons → lesson list + single content panel (one lesson at a time).
   const lessons = publishedLessonsForModule(m.id);
-  let body;
+  let lessonsSection;
   if (lessons.length) {
-    body = lessonView(lessons, m.academyKey);
+    lessonsSection = `<h4 class="module-lessons-title">Lessons</h4>${lessonView(lessons, m.academyKey)}`;
   } else if (m.content || assignment || resources) {
     // Backward-compat for any legacy module-level content.
     const content = m.content ? `<h4>Learning Content</h4><div class="cm-rendered">${renderRichText(m.content)}</div>` : "";
-    body = `${content}${assignment}${resources}`;
+    lessonsSection = `${content}${assignment}${resources}`;
   } else {
-    body = `<p class="muted" style="font-size:14px">المحتوى التفصيلي هيتضاف قريبًا.</p>`;
+    lessonsSection = `<p class="muted" style="font-size:14px">المحتوى التفصيلي هيتضاف قريبًا.</p>`;
   }
+  const body = `${overview}${lessonsSection}`;
 
   const prog = moduleProgress(m.academyKey, m.id);
   const progRow = prog.total
@@ -231,9 +231,32 @@ function moduleCard(m) {
         <div class="level-toggle" aria-hidden="true">▾</div>
       </div>
       <div class="level-body" id="${bodyId}">
-        ${chips ? `<div class="module-meta" style="margin-bottom:14px">${chips}</div>` : ""}
         ${body}
       </div>
+    </div>`;
+}
+
+/* Clean Module Overview shown at the top of an expanded module, before Lessons.
+   Shows description, learning objectives, duration, difficulty, prerequisites.
+   Returns "" when the module has none of these. */
+function moduleOverview(m) {
+  const objectives = Array.isArray(m.objectives) ? m.objectives.filter(Boolean) : [];
+  const desc = m.shortDesc ? `<p>${escHtml(m.shortDesc)}</p>` : "";
+  const objHtml = objectives.length
+    ? `<h4>Learning Objectives</h4><ul>${objectives.map(o => `<li>${escHtml(o)}</li>`).join("")}</ul>`
+    : "";
+  const meta = [
+    m.studyTime ? `<span class="meta-chip">⏱ ${escHtml(m.studyTime)}</span>` : "",
+    m.difficulty ? `<span class="meta-chip">📊 ${escHtml(m.difficulty)}</span>` : ""
+  ].filter(Boolean).join("");
+  const prereq = m.prerequisites ? `<h4>Prerequisites</h4><p>${escHtml(m.prerequisites)}</p>` : "";
+  if (!desc && !objHtml && !meta && !prereq) return "";
+  return `
+    <div class="module-overview">
+      ${desc}
+      ${objHtml}
+      ${meta ? `<div class="module-meta" style="margin-top:12px">${meta}</div>` : ""}
+      ${prereq}
     </div>`;
 }
 

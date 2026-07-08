@@ -959,6 +959,50 @@ a.nav-item { color: #cdd8e6; }
 /* Assignment group inside the lesson editor (Content Manager) */
 .cm-asg { margin-top: 6px; padding-top: 14px; border-top: 1px dashed var(--border); }
 
+/* ---- Content Structure panel (Content Manager, Lessons tab) ---- */
+.cm-workspace { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .cm-workspace { grid-template-columns: 1fr; } }
+
+.cm-structure {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px; box-shadow: var(--shadow-sm);
+  position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto;
+}
+.cm-tree-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  padding: 2px 6px 12px; border-bottom: 1px solid var(--border); margin-bottom: 8px;
+}
+.cm-tree-academy { font-size: 15px; font-weight: 800; color: var(--text); }
+.cm-tree-sub { font-size: 11px; color: var(--muted); font-weight: 700; white-space: nowrap; }
+.cm-tree-modules, .cm-tree-lessons { list-style: none; margin: 0; padding: 0; }
+.cm-tree-module { margin-bottom: 2px; }
+.cm-tree-mod-head {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  background: transparent; border: none; cursor: pointer; font-family: inherit;
+  text-align: inherit; padding: 8px; border-radius: 8px; color: var(--text);
+  transition: background .15s var(--ease);
+}
+.cm-tree-mod-head:hover { background: #f4f7fd; }
+.cm-tree-caret { color: var(--muted); font-size: 12px; flex-shrink: 0; transition: transform .2s var(--ease); }
+.cm-tree-module.is-collapsed .cm-tree-caret { transform: rotate(-90deg); }
+.cm-tree-mod-title { flex: 1; font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-tree-count { font-size: 11px; color: var(--muted); background: #eef2fb; border-radius: 99px; padding: 1px 8px; font-weight: 700; flex-shrink: 0; }
+.cm-tree-lessons { padding-inline-start: 16px; }
+.cm-tree-module.is-collapsed .cm-tree-lessons { display: none; }
+.cm-tree-lesson {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  background: transparent; border: none; cursor: pointer; font-family: inherit;
+  text-align: inherit; padding: 6px 8px; border-radius: 8px; color: var(--muted);
+  border-inline-start: 2px solid var(--border); transition: background .15s var(--ease), color .15s;
+}
+.cm-tree-lesson:hover { background: #f4f7fd; color: var(--text); }
+.cm-tree-lesson.is-selected { background: #eef2fb; color: var(--primary); font-weight: 700; border-inline-start-color: var(--primary); }
+.cm-tree-lesson-title { flex: 1; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-tree-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--muted); }
+.cm-tree-dot.is-pub { background: var(--success); }
+.cm-tree-dot.is-draft { background: var(--warn); }
+.cm-tree-empty { font-size: 12px; color: var(--muted); padding: 8px; }
+
 /* ---- Academy progress summary (Learning Path top) ---- */
 .academy-progress {
   display: grid; grid-template-columns: 1fr 1fr 1.5fr; gap: 16px; align-items: center;

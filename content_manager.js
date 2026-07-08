@@ -10,6 +10,10 @@
 let CM_ITEMS = [];
 const $ = (id) => document.getElementById(id);
 
+/* Modules collapsed in the Content Structure tree (by module id).
+   Kept in memory so the tree survives live re-renders. */
+const CM_TREE_COLLAPSED = new Set();
+
 function uid() {
   return "c" + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
 }
@@ -17,6 +21,7 @@ function nowISO() { return new Date().toISOString(); }
 
 /* ---------- Module list rendering ---------- */
 function renderModuleList() {
+  renderStructureTree(); // keep the Content Structure tree in sync
   const list = $("moduleList");
   const academyKey = $("mAcademy").value;
   const ac = academyByKey(academyKey);
@@ -199,6 +204,7 @@ function ensureLessonOrder(moduleId) {
 }
 
 function renderLessonList() {
+  renderStructureTree(); // keep the Content Structure tree in sync
   const list = $("lessonList");
   const moduleId = $("lModule").value;
   const mod = CM_ITEMS.find(m => m.id === moduleId);
@@ -468,6 +474,74 @@ function handleLessonListClick(e) {
 }
 
 /* ============================================================
+   CONTENT STRUCTURE TREE (Academy → Modules → Lessons)
+   ------------------------------------------------------------
+   A navigation panel on the left of the Lessons tab. Clicking a
+   lesson opens it in the editor; the tree re-renders on every data
+   change (add / edit / delete / reorder) via renderModuleList /
+   renderLessonList, so it always mirrors the current content.
+   ============================================================ */
+function renderStructureTree() {
+  const host = $("cmStructure");
+  if (!host) return;
+  const academyKey = ($("lAcademy") && $("lAcademy").value) || getSelectedAcademy();
+  const ac = academyByKey(academyKey);
+  if (!ac) { host.innerHTML = ""; return; }
+
+  const selectedId = $("lId") ? $("lId").value : "";
+  const modules = modulesByAcademy(academyKey);
+
+  const modulesHtml = modules.map(m => {
+    const lessons = lessonsByModule(m.id);
+    const collapsed = CM_TREE_COLLAPSED.has(m.id);
+    const lessonsHtml = lessons.length
+      ? lessons.map((l, i) => `
+          <li>
+            <button type="button" class="cm-tree-lesson${l.id === selectedId ? " is-selected" : ""}" data-tree-lesson="${l.id}">
+              <span class="cm-tree-dot ${l.status === "Published" ? "is-pub" : "is-draft"}" aria-hidden="true"></span>
+              <span class="cm-tree-lesson-title">L${escHtml(l.lessonNumber) || (i + 1)} — ${escHtml(l.lessonTitle) || "بدون عنوان"}</span>
+            </button>
+          </li>`).join("")
+      : `<li class="cm-tree-empty">لا يوجد دروس</li>`;
+
+    return `
+      <li class="cm-tree-module${collapsed ? " is-collapsed" : ""}">
+        <button type="button" class="cm-tree-mod-head" data-tree-mod="${m.id}" aria-expanded="${collapsed ? "false" : "true"}">
+          <span class="cm-tree-caret" aria-hidden="true">▾</span>
+          <span class="cm-tree-mod-title">M${escHtml(m.moduleNumber)} — ${escHtml(m.moduleTitle) || "بدون عنوان"}</span>
+          <span class="cm-tree-count">${lessons.length}</span>
+        </button>
+        <ul class="cm-tree-lessons">${lessonsHtml}</ul>
+      </li>`;
+  }).join("");
+
+  host.innerHTML = `
+    <div class="cm-tree-head">
+      <span class="cm-tree-academy">🏛️ ${escHtml(ac.name)}</span>
+      <span class="cm-tree-sub">${modules.length} Modules</span>
+    </div>
+    <ul class="cm-tree-modules">
+      ${modules.length ? modulesHtml : `<li class="cm-tree-empty">لا يوجد Modules — أضفها من تاب Modules</li>`}
+    </ul>`;
+}
+
+function handleTreeClick(e) {
+  const modHead = e.target.closest("[data-tree-mod]");
+  if (modHead) {
+    const id = modHead.dataset.treeMod;
+    if (CM_TREE_COLLAPSED.has(id)) CM_TREE_COLLAPSED.delete(id);
+    else CM_TREE_COLLAPSED.add(id);
+    renderStructureTree();
+    return;
+  }
+  const lessonBtn = e.target.closest("[data-tree-lesson]");
+  if (lessonBtn) {
+    const lesson = LESSON_ITEMS.find(l => l.id === lessonBtn.dataset.treeLesson);
+    if (lesson) fillLessonForm(lesson); // opens it in the editor + highlights the tree
+  }
+}
+
+/* ============================================================
    TABS
    ============================================================ */
 function switchTab(tab) {
@@ -589,6 +663,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("lessonList").addEventListener("click", handleLessonListClick);
   $("aSaveBtn").addEventListener("click", saveAssignment);
   $("aRemoveBtn").addEventListener("click", removeAssignment);
+  $("cmStructure").addEventListener("click", handleTreeClick);
+  renderStructureTree();
   $("lAcademy").addEventListener("change", () => {
     setSelectedAcademy($("lAcademy").value);
     populateLessonModules();

@@ -75,6 +75,21 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!btn || !container.contains(btn)) return;
     markLessonCompleted(btn.getAttribute("data-complete"), teamKey, btn);
   });
+
+  // Activities: save the employee's answers locally as they answer (no scoring).
+  function saveActivityAnswer(actEl) {
+    setResponse(teamKey, actEl.getAttribute("data-activity-id"), readActivityAnswer(actEl));
+    const note = actEl.querySelector(".lp-act-saved");
+    if (note) note.textContent = "✓ Saved";
+  }
+  container.addEventListener("change", e => {
+    const actEl = e.target.closest(".lp-activity");
+    if (actEl && container.contains(actEl)) saveActivityAnswer(actEl);
+  });
+  container.addEventListener("input", e => {
+    const actEl = e.target.closest(".lp-activity");
+    if (actEl && container.contains(actEl) && e.target.classList.contains("lp-act-short")) saveActivityAnswer(actEl);
+  });
 });
 
 /* Record a lesson as completed and update the lesson row + progress meters. */
@@ -248,6 +263,7 @@ function lessonView(lessons, academyKey) {
       <div class="lesson-acc-body">
         <div class="cm-rendered">${renderRichText(l.contentBody)}</div>
         ${assignmentBlock(l.assignment)}
+        ${activitiesBlock(l, academyKey)}
         <div class="lesson-complete">
           <button type="button" class="btn ${completed ? "is-done" : "btn-primary"} lesson-complete-btn"
                   data-complete="${escHtml(l.id)}" ${completed ? "disabled" : ""}>
@@ -279,6 +295,70 @@ function assignmentBlock(asg) {
       ${asg.deliverables ? `<p><strong>Deliverables</strong></p><div class="cm-rendered">${renderRichText(asg.deliverables)}</div>` : ""}
       ${chips ? `<div class="module-meta" style="margin-top:10px">${chips}</div>` : ""}
     </div>`;
+}
+
+/* Published activities under the lesson content. Employees can answer; answers
+   are saved locally (no scoring yet). Returns "" when there is nothing to show. */
+function activitiesBlock(lesson, academyKey) {
+  const acts = publishedActivities(lesson);
+  if (!acts.length) return "";
+  const rows = acts.map((a, i) => activityHtml(a, i, academyKey)).join("");
+  return `<div class="lp-activities"><h4>Activities</h4>${rows}</div>`;
+}
+
+function activityHtml(a, i, academyKey) {
+  const resp = getResponse(academyKey, a.id);
+  const name = "lpact-" + a.id;
+  let body = "";
+
+  if (a.type === "mcq") {
+    body = (a.choices || []).map((c, ci) => `
+      <label class="lp-act-option">
+        <input type="radio" name="${name}" value="${ci}" ${resp != null && Number(resp) === ci ? "checked" : ""} />
+        <span>${escHtml(c)}</span>
+      </label>`).join("");
+  } else if (a.type === "truefalse") {
+    body = ["true", "false"].map(v => `
+      <label class="lp-act-option">
+        <input type="radio" name="${name}" value="${v}" ${String(resp) === v ? "checked" : ""} />
+        <span>${v === "true" ? "True" : "False"}</span>
+      </label>`).join("");
+  } else if (a.type === "multiselect") {
+    const arr = Array.isArray(resp) ? resp.map(Number) : [];
+    body = (a.choices || []).map((c, ci) => `
+      <label class="lp-act-option">
+        <input type="checkbox" name="${name}" value="${ci}" ${arr.indexOf(ci) >= 0 ? "checked" : ""} />
+        <span>${escHtml(c)}</span>
+      </label>`).join("");
+  } else if (a.type === "short") {
+    body = `<input type="text" class="lp-act-short" value="${escHtml(resp || "")}" placeholder="اكتب إجابتك…" />`;
+  }
+
+  const pts = (a.points == null) ? "" : `<span class="lp-act-points">${escHtml(String(a.points))} pts</span>`;
+  return `
+    <div class="lp-activity" data-activity-id="${escHtml(a.id)}" data-act-type="${escHtml(a.type)}">
+      <div class="lp-act-q"><span class="lp-act-num">Q${i + 1}</span> ${escHtml(a.question)} ${pts}</div>
+      <div class="lp-act-body">${body}</div>
+      <div class="lp-act-saved" aria-live="polite"></div>
+    </div>`;
+}
+
+/* Read the employee's current answer for one .lp-activity element. */
+function readActivityAnswer(actEl) {
+  const type = actEl.getAttribute("data-act-type");
+  if (type === "mcq" || type === "truefalse") {
+    const checked = actEl.querySelector('input[type="radio"]:checked');
+    if (!checked) return null;
+    return type === "mcq" ? Number(checked.value) : checked.value;
+  }
+  if (type === "multiselect") {
+    return Array.from(actEl.querySelectorAll('input[type="checkbox"]:checked')).map(c => Number(c.value));
+  }
+  if (type === "short") {
+    const t = actEl.querySelector(".lp-act-short");
+    return t ? t.value : "";
+  }
+  return null;
 }
 
 /* Locked module → header-only "Coming Soon" card (not expandable). */

@@ -235,6 +235,68 @@
               </div>
             </div>
 
+            <!-- Lesson Activities (quizzes) — belong to this lesson -->
+            <div class="field field-full cm-activities">
+              <h3 class="cm-group-title">Lesson Activities</h3>
+              <p class="cm-hint">أنشئ أنشطة (أسئلة) للدرس الحالي. افتح درس بـ <strong>Edit</strong>، ضيف الأنشطة، وكل نشاط بيتحفظ لوحده.</p>
+
+              <!-- Existing activities for this lesson -->
+              <div class="cm-act-list" id="actList"></div>
+
+              <!-- Add / edit a single activity -->
+              <div class="cm-act-form" id="actForm">
+                <input type="hidden" id="actId" />
+                <div class="form-grid">
+                  <div class="field field-full">
+                    <label for="actQuestion">Question</label>
+                    <textarea id="actQuestion" rows="2" placeholder="اكتب السؤال…"></textarea>
+                  </div>
+                  <div class="field">
+                    <label for="actType">Type</label>
+                    <select id="actType"></select>
+                  </div>
+                  <div class="field">
+                    <label for="actPoints">Points</label>
+                    <input type="text" id="actPoints" placeholder="1" />
+                  </div>
+                  <div class="field">
+                    <label for="actStatus">Status</label>
+                    <select id="actStatus">
+                      <option value="Draft">Draft</option>
+                      <option value="Published">Published</option>
+                    </select>
+                  </div>
+
+                  <!-- Choices + correct answer (MCQ / Multiple Select) -->
+                  <div class="field field-full" id="actChoicesWrap">
+                    <label>Choices &amp; Correct Answer</label>
+                    <div id="actChoices"></div>
+                    <button type="button" class="btn btn-ghost" id="actAddChoice">+ Add Choice</button>
+                  </div>
+
+                  <!-- Correct answer (True / False) -->
+                  <div class="field" id="actTfWrap" hidden>
+                    <label for="actTfCorrect">Correct Answer</label>
+                    <select id="actTfCorrect">
+                      <option value="true">True</option>
+                      <option value="false">False</option>
+                    </select>
+                  </div>
+
+                  <!-- Correct answer (Short Answer) -->
+                  <div class="field field-full" id="actShortWrap" hidden>
+                    <label for="actShortCorrect">Model Answer (optional)</label>
+                    <input type="text" id="actShortCorrect" placeholder="الإجابة النموذجية (اختياري)" />
+                  </div>
+                </div>
+                <div class="cm-form-actions">
+                  <button type="button" class="btn btn-primary" id="actSaveBtn">Add Activity</button>
+                  <button type="button" class="btn btn-ghost" id="actCancelBtn" hidden>Cancel</button>
+                  <span class="form-msg" id="actMsg" role="status" aria-live="polite"></span>
+                </div>
+              </div>
+            </div>
+
             <!-- Attachments (stored locally as data URLs for now; Google Drive later) -->
             <div class="field field-full">
               <label>Attachments</label>

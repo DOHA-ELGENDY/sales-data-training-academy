@@ -1003,6 +1003,37 @@ a.nav-item { color: #cdd8e6; }
 .cm-tree-dot.is-draft { background: var(--warn); }
 .cm-tree-empty { font-size: 12px; color: var(--muted); padding: 8px; }
 
+/* ---- Lesson Activities editor (Content Manager) ---- */
+.cm-activities { margin-top: 6px; padding-top: 14px; border-top: 1px dashed var(--border); }
+.cm-act-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.cm-act-card { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; background: #fbfcfe; }
+.cm-act-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.cm-act-type { font-size: 12px; font-weight: 700; color: var(--primary); background: #eef2fb; padding: 2px 10px; border-radius: 99px; }
+.cm-act-points { font-size: 12px; color: var(--muted); font-weight: 700; margin-inline-start: auto; }
+.cm-act-q { font-size: 14px; color: var(--text); margin-bottom: 10px; white-space: pre-wrap; }
+.cm-act-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.cm-act-actions .btn { padding: 6px 10px; font-size: 13px; }
+.cm-act-form { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; background: var(--surface); }
+.cm-choice-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.cm-choice-row .cm-choice-correct { flex-shrink: 0; width: 18px; height: 18px; margin: 0; padding: 0; }
+.cm-choice-row .cm-choice-text { flex: 1; }
+.cm-choice-row .cm-choice-del { padding: 6px 11px; font-size: 13px; flex-shrink: 0; }
+
+/* ---- Lesson Activities (Learning Path, employee) ---- */
+.lp-activities { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--border); }
+.lp-activities > h4 { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--primary); margin: 0 0 10px; }
+.lp-activity { background: #fbfcfe; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 10px; }
+.lp-act-q { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 10px; }
+.lp-act-num { display: inline-block; background: var(--primary); color: #fff; font-size: 11px; font-weight: 700; border-radius: 6px; padding: 1px 7px; margin-inline-end: 6px; }
+.lp-act-points { font-size: 12px; color: var(--muted); font-weight: 700; margin-inline-start: 6px; }
+.lp-act-body { display: flex; flex-direction: column; gap: 8px; }
+.lp-act-option { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text); cursor: pointer; padding: 6px 8px; border-radius: 8px; transition: background .15s var(--ease); }
+.lp-act-option:hover { background: #f4f7fd; }
+.lp-act-option input { flex-shrink: 0; width: 16px; height: 16px; }
+.lp-act-short { width: 100%; font-family: inherit; font-size: 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fff; color: var(--text); }
+.lp-act-short:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px rgba(37, 99, 235, .12); }
+.lp-act-saved { font-size: 12px; color: var(--success); font-weight: 700; margin-top: 8px; min-height: 14px; }
+
 /* ---- Academy progress summary (Learning Path top) ---- */
 .academy-progress {
   display: grid; grid-template-columns: 1fr 1fr 1.5fr; gap: 16px; align-items: center;

@@ -180,6 +180,50 @@ function academyProgress(academyKey) {
   return { lessonsDone, lessonsTotal, modulesDone, modulesTotal, percent };
 }
 
+/* ---------- Lesson Activities (quizzes) ----------
+   Activities live on the lesson as `lesson.activities` (an ordered array).
+   Each activity: { id, question, type, points, choices[], correct, status }.
+   Types: mcq | truefalse | multiselect | short. Ordering = array position. */
+const ACTIVITY_TYPES = [
+  { value: "mcq", label: "Multiple Choice (MCQ)" },
+  { value: "truefalse", label: "True / False" },
+  { value: "multiselect", label: "Multiple Select" },
+  { value: "short", label: "Short Answer" }
+];
+function activityTypeLabel(t) {
+  const f = ACTIVITY_TYPES.find(x => x.value === t);
+  return f ? f.label : t;
+}
+function lessonActivities(lesson) {
+  return (lesson && Array.isArray(lesson.activities)) ? lesson.activities : [];
+}
+function publishedActivities(lesson) {
+  return lessonActivities(lesson).filter(a => a.status === "Published");
+}
+
+/* ---------- Activity responses (employee answers) ----------
+   Separated by academy. Shape: { [academyKey]: { [activityId]: answer } }.
+   Answers are saved as-is; scoring comes later. localStorage for now. */
+const RESPONSES_KEY = "sdta_responses_v1";
+function loadResponses() {
+  try {
+    const raw = localStorage.getItem(RESPONSES_KEY);
+    if (raw) return JSON.parse(raw) || {};
+  } catch (e) { /* ignore corrupt storage */ }
+  return {};
+}
+function saveResponses(obj) { localStorage.setItem(RESPONSES_KEY, JSON.stringify(obj)); }
+function getResponse(academyKey, activityId) {
+  const r = loadResponses();
+  return (r[academyKey] && r[academyKey][activityId] !== undefined) ? r[academyKey][activityId] : null;
+}
+function setResponse(academyKey, activityId, value) {
+  const r = loadResponses();
+  if (!r[academyKey]) r[academyKey] = {};
+  r[academyKey][activityId] = value;
+  saveResponses(r);
+}
+
 /* ============================================================
    REMOTE BACKEND (Google Sheets via Apps Script Web App)
    ------------------------------------------------------------
@@ -250,6 +294,7 @@ async function syncContentFromServer() {
           if (l.order === "" && (local.order === 0 || local.order)) l.order = local.order;
           if (!l.lessonNumber && local.lessonNumber) l.lessonNumber = local.lessonNumber;
           if (!l.assignment && local.assignment) l.assignment = local.assignment;
+          if (!l.activities && local.activities) l.activities = local.activities;
         }
         return l;
       });

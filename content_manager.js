@@ -272,6 +272,8 @@ function clearLessonForm() {
   $("lSaveBtn").textContent = "Save Lesson";
   $("lMsg").textContent = "";
   clearAssignmentFields();
+  clearActForm();
+  renderActList();
 }
 
 function fillLessonForm(l) {
@@ -286,6 +288,8 @@ function fillLessonForm(l) {
   $("lStatus").value = l.status || "Draft";
   $("lSaveBtn").textContent = "Update Lesson";
   fillAssignmentForm(l.assignment);
+  clearActForm();
+  renderActList();
   renderLessonList();
   document.querySelector("#tab-lessons").scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -439,6 +443,231 @@ function removeAssignment() {
   msg.style.color = "#16a34a";
   msg.textContent = "تم إزالة الـ Assignment ✓";
   setTimeout(() => { if (msg.textContent === "تم إزالة الـ Assignment ✓") msg.textContent = ""; }, 2500);
+}
+
+/* ============================================================
+   LESSON ACTIVITIES (quizzes) — nested inside the lesson
+   ------------------------------------------------------------
+   Activities are stored on lesson.activities (ordered array). Each is
+   saved individually. Requires the lesson to be saved first (has lId).
+   ============================================================ */
+let ACT_CHOICES = []; // {text, correct} rows for the activity being edited
+
+function currentLesson() {
+  const id = $("lId").value;
+  return id ? LESSON_ITEMS.find(l => l.id === id) : null;
+}
+
+function renderActList() {
+  const host = $("actList");
+  if (!host) return;
+  const lesson = currentLesson();
+  if (!lesson) {
+    host.innerHTML = `<p class="cm-hint">احفظ الدرس الأول، بعدين تقدر تضيف أنشطة.</p>`;
+    return;
+  }
+  const acts = lessonActivities(lesson);
+  if (!acts.length) {
+    host.innerHTML = `<p class="cm-hint">لا يوجد أنشطة بعد. أضف أول نشاط من الفورم تحت.</p>`;
+    return;
+  }
+  host.innerHTML = acts.map((a, i) => `
+    <div class="cm-act-card">
+      <div class="cm-act-top">
+        <span class="cm-act-type">${escHtml(activityTypeLabel(a.type))}</span>
+        <span class="cm-status ${a.status === "Published" ? "is-pub" : "is-draft"}">${escHtml(a.status)}</span>
+        <span class="cm-act-points">${escHtml(String(a.points == null ? 0 : a.points))} pts</span>
+      </div>
+      <div class="cm-act-q">${escHtml(a.question) || "—"}</div>
+      <div class="cm-act-actions">
+        <button class="btn btn-ghost" data-act-move="up" data-id="${a.id}" ${i === 0 ? "disabled" : ""} title="Move up">↑</button>
+        <button class="btn btn-ghost" data-act-move="down" data-id="${a.id}" ${i === acts.length - 1 ? "disabled" : ""} title="Move down">↓</button>
+        <button class="btn btn-ghost" data-act-edit data-id="${a.id}">Edit</button>
+        <button class="btn btn-ghost cm-danger" data-act-del data-id="${a.id}">Delete</button>
+      </div>
+    </div>`).join("");
+}
+
+/* Show/hide the correct-answer inputs for the selected type + draw choices. */
+function updateActTypeUI() {
+  const type = $("actType").value;
+  const isChoices = (type === "mcq" || type === "multiselect");
+  $("actChoicesWrap").hidden = !isChoices;
+  $("actTfWrap").hidden = (type !== "truefalse");
+  $("actShortWrap").hidden = (type !== "short");
+  if (isChoices) {
+    if (!ACT_CHOICES.length) ACT_CHOICES = [{ text: "", correct: false }, { text: "", correct: false }];
+    if (type === "mcq") {
+      // MCQ allows only one correct choice.
+      let seen = false;
+      ACT_CHOICES.forEach(c => { if (c.correct && !seen) seen = true; else c.correct = false; });
+    }
+    renderActChoices();
+  }
+}
+
+function renderActChoices() {
+  const wrap = $("actChoices");
+  const inputType = $("actType").value === "multiselect" ? "checkbox" : "radio";
+  wrap.innerHTML = ACT_CHOICES.map((c, i) => `
+    <div class="cm-choice-row" data-i="${i}">
+      <input type="${inputType}" name="actCorrect" class="cm-choice-correct" ${c.correct ? "checked" : ""} title="Correct answer" />
+      <input type="text" class="cm-choice-text" value="${escHtml(c.text)}" placeholder="Choice ${i + 1}" />
+      <button type="button" class="btn btn-ghost cm-choice-del" title="Remove">✕</button>
+    </div>`).join("");
+}
+
+function clearActForm() {
+  $("actId").value = "";
+  $("actQuestion").value = "";
+  $("actType").value = "mcq";
+  $("actPoints").value = "1";
+  $("actStatus").value = "Draft";
+  $("actTfCorrect").value = "true";
+  $("actShortCorrect").value = "";
+  ACT_CHOICES = [{ text: "", correct: false }, { text: "", correct: false }];
+  $("actSaveBtn").textContent = "Add Activity";
+  $("actCancelBtn").hidden = true;
+  $("actMsg").textContent = "";
+  updateActTypeUI();
+}
+
+function fillActForm(a) {
+  $("actId").value = a.id;
+  $("actQuestion").value = a.question || "";
+  $("actType").value = a.type || "mcq";
+  $("actPoints").value = (a.points == null) ? "1" : a.points;
+  $("actStatus").value = a.status || "Draft";
+  $("actTfCorrect").value = "true";
+  $("actShortCorrect").value = "";
+  ACT_CHOICES = [];
+  if (a.type === "mcq" || a.type === "multiselect") {
+    const choices = Array.isArray(a.choices) ? a.choices : [];
+    const correct = a.correct;
+    ACT_CHOICES = choices.map((txt, i) => ({
+      text: txt,
+      correct: a.type === "multiselect"
+        ? (Array.isArray(correct) && correct.includes(i))
+        : (Number(correct) === i)
+    }));
+  } else if (a.type === "truefalse") {
+    $("actTfCorrect").value = (a.correct === "false" || a.correct === false) ? "false" : "true";
+  } else if (a.type === "short") {
+    $("actShortCorrect").value = a.correct || "";
+  }
+  $("actSaveBtn").textContent = "Update Activity";
+  $("actCancelBtn").hidden = false;
+  $("actMsg").textContent = "";
+  updateActTypeUI();
+  $("actForm").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function saveActivity() {
+  const msg = $("actMsg");
+  const err = t => { msg.style.color = "#dc2626"; msg.textContent = t; };
+  const lesson = currentLesson();
+  if (!lesson) {
+    err("احفظ الدرس الأول (Save Lesson)، بعدين افتحه بـ Edit وأضف الأنشطة.");
+    return;
+  }
+  const question = $("actQuestion").value.trim();
+  if (!question) { err("Question مطلوب."); return; }
+  const type = $("actType").value;
+  const points = parseFloat($("actPoints").value) || 0;
+  const status = $("actStatus").value;
+
+  let choices = [], correct = null;
+  if (type === "mcq" || type === "multiselect") {
+    const rows = ACT_CHOICES
+      .map(c => ({ text: (c.text || "").trim(), correct: !!c.correct }))
+      .filter(c => c.text !== "");
+    if (rows.length < 2) { err("محتاج على الأقل خيارين بنص."); return; }
+    choices = rows.map(r => r.text);
+    if (type === "mcq") {
+      const idx = rows.findIndex(r => r.correct);
+      if (idx < 0) { err("اختَر الإجابة الصحيحة."); return; }
+      correct = idx;
+    } else {
+      correct = rows.map((r, i) => (r.correct ? i : -1)).filter(i => i >= 0);
+      if (!correct.length) { err("اختَر إجابة صحيحة واحدة على الأقل."); return; }
+    }
+  } else if (type === "truefalse") {
+    correct = $("actTfCorrect").value;
+  } else if (type === "short") {
+    correct = $("actShortCorrect").value.trim();
+  }
+
+  const id = $("actId").value || uid();
+  const activity = { id, question, type, points, choices, correct, status };
+  if (!Array.isArray(lesson.activities)) lesson.activities = [];
+  const idx = lesson.activities.findIndex(a => a.id === id);
+  if (idx >= 0) lesson.activities[idx] = activity; else lesson.activities.push(activity);
+  lesson.updatedAt = nowISO();
+  saveLessons(LESSON_ITEMS);
+  pushLesson(lesson);
+
+  renderActList();
+  clearActForm();
+  msg.style.color = "#16a34a";
+  msg.textContent = "تم حفظ النشاط ✓";
+  setTimeout(() => { if (msg.textContent === "تم حفظ النشاط ✓") msg.textContent = ""; }, 2000);
+}
+
+function handleActListClick(e) {
+  const btn = e.target.closest("[data-id]");
+  if (!btn) return;
+  const lesson = currentLesson();
+  if (!lesson) return;
+  const acts = lessonActivities(lesson);
+  const idx = acts.findIndex(a => a.id === btn.dataset.id);
+  if (idx < 0) return;
+
+  if (btn.hasAttribute("data-act-edit")) {
+    fillActForm(acts[idx]);
+  } else if (btn.hasAttribute("data-act-del")) {
+    if (confirm("حذف النشاط ده؟ لا يمكن التراجع.")) {
+      const removedId = acts[idx].id;
+      acts.splice(idx, 1);
+      lesson.updatedAt = nowISO();
+      saveLessons(LESSON_ITEMS);
+      pushLesson(lesson);
+      renderActList();
+      if ($("actId").value === removedId) clearActForm();
+    }
+  } else if (btn.dataset.actMove) {
+    const swap = idx + (btn.dataset.actMove === "up" ? -1 : 1);
+    if (swap < 0 || swap >= acts.length) return;
+    const tmp = acts[idx]; acts[idx] = acts[swap]; acts[swap] = tmp;
+    lesson.updatedAt = nowISO();
+    saveLessons(LESSON_ITEMS);
+    pushLesson(lesson);
+    renderActList();
+  }
+}
+
+/* Choice-editor interactions (delegated on #actChoices). */
+function onActChoiceChange(e) {
+  const correct = e.target.closest(".cm-choice-correct");
+  if (!correct) return;
+  const i = Number(correct.closest(".cm-choice-row").dataset.i);
+  if ($("actType").value === "multiselect") {
+    ACT_CHOICES[i].correct = correct.checked;
+  } else {
+    ACT_CHOICES.forEach((c, idx) => { c.correct = (idx === i); });
+  }
+}
+function onActChoiceInput(e) {
+  const text = e.target.closest(".cm-choice-text");
+  if (!text) return;
+  const i = Number(text.closest(".cm-choice-row").dataset.i);
+  ACT_CHOICES[i].text = text.value;
+}
+function onActChoiceClick(e) {
+  const del = e.target.closest(".cm-choice-del");
+  if (!del) return;
+  const i = Number(del.closest(".cm-choice-row").dataset.i);
+  ACT_CHOICES.splice(i, 1);
+  renderActChoices();
 }
 
 function handleLessonListClick(e) {
@@ -655,6 +884,18 @@ document.addEventListener("DOMContentLoaded", () => {
   $("lAcademy").innerHTML = acadOptions;
   $("lAcademy").value = getSelectedAcademy() || ACADEMIES[0].key;
   LESSON_ITEMS = loadLessons();
+
+  // ----- Activities sub-editor (inside the lesson editor) -----
+  $("actType").innerHTML = ACTIVITY_TYPES.map(t => `<option value="${t.value}">${escHtml(t.label)}</option>`).join("");
+  $("actType").addEventListener("change", updateActTypeUI);
+  $("actAddChoice").addEventListener("click", () => { ACT_CHOICES.push({ text: "", correct: false }); renderActChoices(); });
+  $("actChoices").addEventListener("change", onActChoiceChange);
+  $("actChoices").addEventListener("input", onActChoiceInput);
+  $("actChoices").addEventListener("click", onActChoiceClick);
+  $("actSaveBtn").addEventListener("click", saveActivity);
+  $("actCancelBtn").addEventListener("click", clearActForm);
+  $("actList").addEventListener("click", handleActListClick);
+
   populateLessonModules();
   renderLessonList();
   clearLessonForm();

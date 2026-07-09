@@ -39,6 +39,9 @@ function createRichEditor(mount, opts) {
       <button type="button" data-action="table" title="Insert table">▦</button>
       <button type="button" data-action="hr" title="Horizontal divider">―</button>
       <button type="button" data-action="image" title="Insert image">🖼️</button>
+      <button type="button" data-action="youtube" title="Insert YouTube video">📺</button>
+      <button type="button" data-action="attach" title="Insert attachment (PDF/DOCX/PPTX/XLSX)">📎</button>
+      <button type="button" data-action="resource" title="Insert resource link">🔖</button>
       <span class="rte-sep"></span>
       <button type="button" data-action="callout-info" title="Info callout">ℹ️</button>
       <button type="button" data-action="callout-note" title="Note callout">🗒️</button>
@@ -62,6 +65,19 @@ function createRichEditor(mount, opts) {
   imgInput.accept = "image/*";
   imgInput.hidden = true;
   mount.appendChild(imgInput);
+
+  // Hidden file input for document attachments.
+  const attachInput = document.createElement("input");
+  attachInput.type = "file";
+  attachInput.accept = ".pdf,.docx,.pptx,.xlsx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  attachInput.hidden = true;
+  mount.appendChild(attachInput);
+
+  /* Small HTML escaper for values placed into inserted blocks. */
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
 
   try { document.execCommand("styleWithCSS", false, true); } catch (e) { /* older browsers */ }
 
@@ -109,9 +125,83 @@ function createRichEditor(mount, opts) {
       case "hr": exec("insertHorizontalRule"); break;
       case "table": insertTable(); break;
       case "image": imgInput.click(); break;
+      case "youtube": insertYouTube(); break;
+      case "attach": attachInput.click(); break;
+      case "resource": insertResource(); break;
       case "callout-info": case "callout-note": case "callout-warning": case "callout-tip":
         insertCallout(action.replace("callout-", "")); break;
     }
+  }
+
+  /* ---- YouTube embed (youtube.com/watch?v= or youtu.be/) ---- */
+  function youTubeId(url) {
+    const s = String(url || "").trim();
+    let m = s.match(/[?&]v=([A-Za-z0-9_-]{6,})/);            // watch?v=
+    if (m) return m[1];
+    m = s.match(/youtu\.be\/([A-Za-z0-9_-]{6,})/);            // youtu.be/
+    if (m) return m[1];
+    m = s.match(/youtube\.com\/embed\/([A-Za-z0-9_-]{6,})/);  // /embed/
+    if (m) return m[1];
+    m = s.match(/youtube\.com\/shorts\/([A-Za-z0-9_-]{6,})/); // /shorts/
+    if (m) return m[1];
+    return null;
+  }
+  function insertYouTube() {
+    const url = prompt("YouTube URL (watch?v=… or youtu.be/…):", "https://");
+    if (!url) return;
+    const id = youTubeId(url);
+    if (!id) { alert("رابط YouTube غير صالح."); return; }
+    insertHTML(
+      `<div class="lp-embed" contenteditable="false"><iframe src="https://www.youtube.com/embed/${esc(id)}" ` +
+      `title="YouTube video" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" ` +
+      `allowfullscreen></iframe></div><p><br></p>`);
+  }
+
+  /* ---- Attachment card (uploaded to Supabase Storage) ---- */
+  function fileIconFor(name) {
+    const n = String(name || "").toLowerCase();
+    if (n.endsWith(".pdf")) return "📕";
+    if (n.endsWith(".docx") || n.endsWith(".doc")) return "📘";
+    if (n.endsWith(".pptx") || n.endsWith(".ppt")) return "📙";
+    if (n.endsWith(".xlsx") || n.endsWith(".xls")) return "📗";
+    return "📎";
+  }
+  function insertAttachment(url, name) {
+    const ext = (String(name).split(".").pop() || "FILE").toUpperCase();
+    insertHTML(
+      `<div class="lp-file" contenteditable="false"><a href="${esc(url)}" target="_blank" rel="noopener" download>` +
+      `<span class="lp-file-ico">${fileIconFor(name)}</span>` +
+      `<span class="lp-file-meta"><span class="lp-file-name">${esc(name)}</span>` +
+      `<span class="lp-file-sub">${esc(ext)} · Download</span></span></a></div><p><br></p>`);
+  }
+  function handleAttachFile(file) {
+    if (!file) return;
+    const range = saveRange();
+    if (typeof SB !== "undefined" && SB && SB.enabled && SB.enabled() && SB.uploadFile) {
+      SB.uploadFile(file).then(url => { restoreRange(range); insertAttachment(url, file.name); })
+        .catch(err => { console.error("Attachment upload failed", err); alert("تعذّر رفع الملف إلى Supabase Storage."); });
+    } else {
+      alert("رفع الملفات يحتاج Supabase (شغّل storage_setup.sql).");
+    }
+  }
+  attachInput.addEventListener("change", () => {
+    if (attachInput.files && attachInput.files[0]) handleAttachFile(attachInput.files[0]);
+    attachInput.value = "";
+  });
+
+  /* ---- External resource link card ---- */
+  function insertResource() {
+    const title = prompt("Resource title:");
+    if (!title) return;
+    const url = prompt("Resource URL:", "https://");
+    if (!url) return;
+    const desc = prompt("Short description (optional):") || "";
+    insertHTML(
+      `<div class="lp-resource" contenteditable="false"><a href="${esc(url)}" target="_blank" rel="noopener">` +
+      `<span class="lp-resource-ico">🔗</span><span class="lp-resource-body">` +
+      `<span class="lp-resource-title">${esc(title)}</span>` +
+      (desc ? `<span class="lp-resource-desc">${esc(desc)}</span>` : "") +
+      `<span class="lp-resource-url">${esc(url)}</span></span></a></div><p><br></p>`);
   }
 
   function insertTable() {
@@ -247,7 +337,7 @@ function createRichEditor(mount, opts) {
     clone.querySelectorAll("a[href]").forEach(a => { a.setAttribute("target", "_blank"); a.setAttribute("rel", "noopener"); });
     clone.querySelectorAll(".rte-selected").forEach(el => el.classList.remove("rte-selected"));
     const hasText = (clone.textContent || "").trim().length > 0;
-    const hasMedia = clone.querySelector("img,table,hr,figure,pre");
+    const hasMedia = clone.querySelector("img,table,hr,figure,pre,iframe,.lp-embed,.lp-file,.lp-resource");
     if (!hasText && !hasMedia) return "";
     return clone.innerHTML.trim();
   }

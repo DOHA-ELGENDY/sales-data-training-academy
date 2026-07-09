@@ -198,11 +198,13 @@ window.SB = (function () {
     });
   }
 
-  /* ---------- Image upload (Supabase Storage, public bucket) ---------- */
-  async function uploadImage(file) {
+  /* ---------- File uploads (Supabase Storage, public bucket) ----------
+     Images and document attachments both go to the lesson-images bucket
+     (under lessons/ and files/); lesson HTML stores only the public URL. */
+  async function uploadTo(file, folder, defExt) {
     if (!enabled()) throw new Error("Supabase not configured");
-    var ext = (((file.name || "").split(".").pop()) || "png").toLowerCase().replace(/[^a-z0-9]/g, "") || "png";
-    var path = "lessons/" + subId() + "." + ext;
+    var ext = (((file.name || "").split(".").pop()) || defExt).toLowerCase().replace(/[^a-z0-9]/g, "") || defExt;
+    var path = folder + "/" + subId() + "." + ext;
     var res = await fetch(STORAGE + "/object/" + IMAGE_BUCKET + "/" + path, {
       method: "POST",
       headers: {
@@ -219,6 +221,8 @@ window.SB = (function () {
     }
     return STORAGE + "/object/public/" + IMAGE_BUCKET + "/" + path;
   }
+  function uploadImage(file) { return uploadTo(file, "lessons", "png"); }
+  function uploadFile(file) { return uploadTo(file, "files", "bin"); }
 
   /* ---------- Connection test ---------- */
   async function ping() {
@@ -237,7 +241,7 @@ window.SB = (function () {
     bulkUpsert: bulkUpsert,
     insertSubmission: insertSubmission, upsertSubmission: upsertSubmission,
     fetchSubmissions: fetchSubmissions, updateSubmission: updateSubmission,
-    uploadImage: uploadImage,
+    uploadImage: uploadImage, uploadFile: uploadFile,
     moduleFromRow: moduleFromRow, lessonFromRow: lessonFromRow
   };
 })();

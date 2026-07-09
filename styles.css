@@ -1191,6 +1191,39 @@ a.nav-item { color: #cdd8e6; }
 }
 .rte-imgbar button:hover { background: rgba(255, 255, 255, .18); }
 .rte-figure.rte-selected { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* ---- Embedded content blocks (editor + Learning Path) ---- */
+/* YouTube video (responsive 16:9) */
+.lp-embed { position: relative; width: 100%; max-width: 640px; margin: 12px 0; border-radius: 10px; overflow: hidden; background: #000; }
+.lp-embed::before { content: ""; display: block; padding-bottom: 56.25%; }
+.lp-embed iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+
+/* Attachment card (downloadable file) */
+.lp-file { margin: 12px 0; }
+.lp-file a {
+  display: flex; align-items: center; gap: 12px; text-decoration: none;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 12px 14px; transition: border-color .18s var(--ease), box-shadow .18s var(--ease);
+}
+.lp-file a:hover { border-color: #bcd0f7; box-shadow: var(--shadow-sm); }
+.lp-file-ico { font-size: 26px; flex-shrink: 0; }
+.lp-file-meta { display: flex; flex-direction: column; min-width: 0; }
+.lp-file-name { font-size: 14px; font-weight: 700; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp-file-sub { font-size: 12px; color: var(--muted); font-weight: 600; }
+
+/* External resource link card */
+.lp-resource { margin: 12px 0; }
+.lp-resource a {
+  display: flex; align-items: flex-start; gap: 12px; text-decoration: none;
+  background: #f4f7fd; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 12px 14px; transition: border-color .18s var(--ease), box-shadow .18s var(--ease);
+}
+.lp-resource a:hover { border-color: #bcd0f7; box-shadow: var(--shadow-sm); }
+.lp-resource-ico { font-size: 20px; flex-shrink: 0; }
+.lp-resource-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lp-resource-title { font-size: 14px; font-weight: 700; color: var(--primary); }
+.lp-resource-desc { font-size: 13px; color: var(--text); }
+.lp-resource-url { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .callout { margin: 12px 0; padding: 12px 14px; border-radius: 8px; border-inline-start: 4px solid; font-size: 14px; }
 .callout p { margin: 0; }
 .callout-info { background: #eaf3ff; border-color: #2563eb; }

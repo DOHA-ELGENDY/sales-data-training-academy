@@ -292,6 +292,8 @@ function applyWrite(p) {
     case "deleteModule": return SB.deleteModule(p.id);
     case "deleteLesson": return SB.deleteLesson(p.id);
     case "bulkSave": return SB.bulkUpsert(p.modules || [], p.lessons || []);
+    case "insertSubmission": return SB.upsertSubmission(p.sub);
+    case "updateSubmission": return SB.updateSubmission(p.id, p.patch);
     default: return Promise.resolve();
   }
 }
@@ -327,6 +329,42 @@ function pushModule(item) { return postContent({ action: "saveModule", item }); 
 function pushLesson(item) { return postContent({ action: "saveLesson", item }); }
 function deleteModuleRemote(id) { return postContent({ action: "deleteModule", id }); }
 function deleteLessonRemote(id) { return postContent({ action: "deleteLesson", id }); }
+
+/* ---------- Assignment submissions (Supabase primary, cache fallback) ---------- */
+const SUBMISSIONS_CACHE_KEY = "sdta_submissions_v1";
+function loadSubmissionsCache() {
+  try { return JSON.parse(localStorage.getItem(SUBMISSIONS_CACHE_KEY)) || []; } catch (e) { return []; }
+}
+function saveSubmissionsCache(list) { localStorage.setItem(SUBMISSIONS_CACHE_KEY, JSON.stringify(list || [])); }
+
+/* Employee submits an assignment: cache it locally (optimistic) then push to
+   Supabase; a failed push is queued and retried. */
+function pushSubmission(sub) {
+  const cache = loadSubmissionsCache().filter(s => s.id !== sub.id);
+  cache.unshift(sub);
+  saveSubmissionsCache(cache);
+  return postContent({ action: "insertSubmission", sub });
+}
+
+/* Manager updates a submission's review fields. */
+function updateSubmissionRemote(id, patch) {
+  const cache = loadSubmissionsCache().map(s => s.id === id ? Object.assign({}, s, patch) : s);
+  saveSubmissionsCache(cache);
+  return postContent({ action: "updateSubmission", id, patch });
+}
+
+/* Read all submissions — from Supabase when available (refreshing the cache),
+   otherwise from the local cache. */
+async function loadSubmissions() {
+  if (backendReady()) {
+    try {
+      const subs = await SB.fetchSubmissions();
+      saveSubmissionsCache(subs);
+      return subs;
+    } catch (e) { console.warn("Submissions fetch failed — using cache.", e); }
+  }
+  return loadSubmissionsCache();
+}
 
 /* One-time seed: push whatever is already in localStorage up to an empty database. */
 async function migrateLocalToServer(modules, lessons) {

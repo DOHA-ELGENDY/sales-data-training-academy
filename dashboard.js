@@ -192,6 +192,93 @@ function renderDashboard(key) {
     </a>`;
 }
 
+/* ---------- Manager review: assignment submissions ---------- */
+const SUB_STATUSES = ["Pending Review", "Reviewed", "Needs Revision"];
+
+function fmtDateTime(iso) {
+  try {
+    return new Date(iso).toLocaleString("en-GB",
+      { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  } catch (e) { return iso || ""; }
+}
+function subStatusClass(s) {
+  return s === "Reviewed" ? "is-pub" : (s === "Needs Revision" ? "is-locked" : "is-draft");
+}
+
+function submissionCard(sub) {
+  const link = sub.submissionLink
+    ? `<div class="sub-field"><strong>Link:</strong> <a href="${escHtml(sub.submissionLink)}" target="_blank" rel="noopener">${escHtml(sub.submissionLink)}</a></div>`
+    : "";
+  const answer = sub.textAnswer
+    ? `<div class="sub-field"><strong>Text Answer:</strong><div class="sub-answer">${escHtml(sub.textAnswer)}</div></div>`
+    : "";
+  const notes = sub.notes ? `<div class="sub-field"><strong>Notes:</strong> ${escHtml(sub.notes)}</div>` : "";
+  const ctx = [sub.moduleTitle, sub.lessonTitle, sub.assignmentTitle].filter(Boolean).map(escHtml).join(" · ");
+  const opts = SUB_STATUSES.map(s => `<option value="${s}" ${sub.status === s ? "selected" : ""}>${s}</option>`).join("");
+  return `
+    <div class="sub-card" data-sub-id="${escHtml(sub.id)}">
+      <div class="sub-top">
+        <span class="sub-emp">${escHtml(sub.employeeName) || "—"}</span>
+        <span class="cm-status ${subStatusClass(sub.status)}">${escHtml(sub.status)}</span>
+        <span class="sub-date">${escHtml(fmtDateTime(sub.createdAt))}</span>
+      </div>
+      ${ctx ? `<div class="sub-ctx">${ctx}</div>` : ""}
+      ${link}${answer}${notes}
+      <div class="sub-review">
+        <div class="field">
+          <label>Status</label>
+          <select data-sub-field="status">${opts}</select>
+        </div>
+        <div class="field">
+          <label>Score</label>
+          <input type="text" data-sub-field="score" value="${escHtml(sub.score || "")}" placeholder="e.g. 85 / 100" />
+        </div>
+        <div class="field field-full">
+          <label>Feedback</label>
+          <textarea data-sub-field="feedback" rows="2" placeholder="Feedback للمتدرب…">${escHtml(sub.feedback || "")}</textarea>
+        </div>
+        <div class="sub-review-actions">
+          <button type="button" class="btn btn-primary" data-sub-save>Save Review</button>
+          <span class="sub-msg" role="status" aria-live="polite"></span>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderSubmissions(key) {
+  const host = document.getElementById("dashSubmissions");
+  if (!host) return;
+  if (typeof loadSubmissions !== "function") { host.innerHTML = ""; return; }
+  loadSubmissions().then(all => {
+    const subs = (all || []).filter(s => s.academyKey === key);
+    if (!subs.length) {
+      host.innerHTML = `<p class="cm-hint">لا يوجد تسليمات لهذه الأكاديمية بعد.</p>`;
+      return;
+    }
+    host.innerHTML = `<div class="sub-count">${subs.length} submission${subs.length > 1 ? "s" : ""}</div>` +
+      subs.map(submissionCard).join("");
+  });
+}
+
+/* Save a manager review (status / score / feedback) for one submission. */
+function handleSubmissionSave(btn) {
+  const card = btn.closest(".sub-card");
+  if (!card) return;
+  const id = card.getAttribute("data-sub-id");
+  const get = f => { const el = card.querySelector('[data-sub-field="' + f + '"]'); return el ? el.value : ""; };
+  const patch = { status: get("status"), score: get("score"), feedback: get("feedback"), reviewedAt: new Date().toISOString() };
+  const msg = card.querySelector(".sub-msg");
+  btn.disabled = true;
+  if (msg) { msg.style.color = "#6b7280"; msg.textContent = "Saving…"; }
+  Promise.resolve(updateSubmissionRemote(id, patch)).then(ok => {
+    btn.disabled = false;
+    // Reflect the status pill immediately.
+    const pill = card.querySelector(".cm-status");
+    if (pill) { pill.textContent = patch.status; pill.className = "cm-status " + subStatusClass(patch.status); }
+    if (msg) { msg.style.color = "#16a34a"; msg.textContent = ok ? "Saved ✓" : "Saved locally ✓"; setTimeout(() => { msg.textContent = ""; }, 4000); }
+  });
+}
+
 /* ---------- Init ---------- */
 document.addEventListener("DOMContentLoaded", () => {
   const stats = document.getElementById("dashStats");
@@ -206,11 +293,22 @@ document.addEventListener("DOMContentLoaded", () => {
   sel.addEventListener("change", () => {
     setSelectedAcademy(sel.value);
     renderDashboard(sel.value);
+    renderSubmissions(sel.value);
   });
 
-  renderDashboard(key);
+  // Manager review: save status/score/feedback per submission.
+  const subsHost = document.getElementById("dashSubmissions");
+  if (subsHost) {
+    subsHost.addEventListener("click", e => {
+      const btn = e.target.closest("[data-sub-save]");
+      if (btn) handleSubmissionSave(btn);
+    });
+  }
 
-  // Render from the local cache first (instant), then refresh from Google Sheets.
+  renderDashboard(key);
+  renderSubmissions(key);
+
+  // Render from the local cache first (instant), then refresh from Supabase.
   if (typeof syncContentFromServer === "function") {
     syncContentFromServer().then(ok => { if (ok) renderDashboard(sel.value); });
   }

@@ -136,18 +136,63 @@ window.SB = (function () {
   }
 
   /* ---------- Assignment submissions ---------- */
-  async function insertSubmission(sub) {
-    await req("/submissions", {
-      method: "POST", headers: headers(MINIMAL),
-      body: JSON.stringify({
-        employee_name: s(sub.employeeName),
-        assignment_id: s(sub.assignmentId),
-        submission_link: s(sub.submissionLink),
-        notes: s(sub.notes),
-        status: "Pending Review"
-      })
-    });
+  function subId() { return "s" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
+
+  function submissionToRow(x) {
+    return {
+      id: s(x.id) || subId(),
+      academy_key: s(x.academyKey),
+      module_id: s(x.moduleId),
+      module_title: s(x.moduleTitle),
+      lesson_id: s(x.lessonId),
+      lesson_title: s(x.lessonTitle),
+      assignment_id: s(x.assignmentId),
+      assignment_title: s(x.assignmentTitle),
+      employee_name: s(x.employeeName),
+      submission_link: s(x.submissionLink),
+      text_answer: s(x.textAnswer),
+      notes: s(x.notes),
+      status: s(x.status) || "Pending Review",
+      created_at: x.createdAt || new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+  }
+  function submissionFromRow(r) {
+    return {
+      id: r.id, createdAt: r.created_at, academyKey: r.academy_key,
+      moduleId: r.module_id, moduleTitle: r.module_title,
+      lessonId: r.lesson_id, lessonTitle: r.lesson_title,
+      assignmentId: r.assignment_id, assignmentTitle: r.assignment_title,
+      employeeName: r.employee_name, submissionLink: r.submission_link,
+      textAnswer: r.text_answer, notes: r.notes, status: r.status || "Pending Review",
+      score: r.score, feedback: r.feedback, reviewedAt: r.reviewed_at, updatedAt: r.updated_at
+    };
+  }
+
+  async function fetchSubmissions() {
+    var res = await req("/submissions?select=*&order=created_at.desc", { headers: headers() });
+    return (await res.json()).map(submissionFromRow);
+  }
+  async function upsertSubmission(sub) {
+    await req("/submissions?on_conflict=id", { method: "POST", headers: headers(UPSERT), body: JSON.stringify(submissionToRow(sub)) });
     return true;
+  }
+  /* Manager review update: status / score / feedback / reviewed_at. */
+  async function updateSubmission(id, patch) {
+    var row = {};
+    if (patch.status !== undefined) row.status = patch.status;
+    if (patch.score !== undefined) row.score = s(patch.score);
+    if (patch.feedback !== undefined) row.feedback = s(patch.feedback);
+    if (patch.reviewedAt !== undefined) row.reviewed_at = patch.reviewedAt;
+    await req("/submissions?id=eq." + enc(id), { method: "PATCH", headers: headers(MINIMAL), body: JSON.stringify(row) });
+    return true;
+  }
+  /* Backward-compatible helper used by assignment_M0.html. */
+  async function insertSubmission(sub) {
+    return upsertSubmission({
+      employeeName: sub.employeeName, assignmentId: sub.assignmentId,
+      submissionLink: sub.submissionLink, notes: sub.notes, status: "Pending Review"
+    });
   }
 
   /* ---------- Connection test ---------- */
@@ -160,11 +205,13 @@ window.SB = (function () {
   }
 
   return {
-    enabled: enabled, ping: ping,
+    enabled: enabled, ping: ping, subId: subId,
     fetchModules: fetchModules, fetchLessons: fetchLessons,
     upsertModule: upsertModule, upsertLesson: upsertLesson,
     deleteModule: deleteModule, deleteLesson: deleteLesson,
-    bulkUpsert: bulkUpsert, insertSubmission: insertSubmission,
+    bulkUpsert: bulkUpsert,
+    insertSubmission: insertSubmission, upsertSubmission: upsertSubmission,
+    fetchSubmissions: fetchSubmissions, updateSubmission: updateSubmission,
     moduleFromRow: moduleFromRow, lessonFromRow: lessonFromRow
   };
 })();

@@ -76,6 +76,14 @@ document.addEventListener("DOMContentLoaded", () => {
     markLessonCompleted(btn.getAttribute("data-complete"), teamKey, btn);
   });
 
+  // Submit Assignment — save the employee's submission to Supabase.
+  container.addEventListener("submit", e => {
+    const form = e.target.closest("[data-submit-form]");
+    if (!form || !container.contains(form)) return;
+    e.preventDefault();
+    handleAssignmentSubmit(form, teamKey);
+  });
+
   // Activities: save the employee's answers locally as they answer (no scoring).
   function saveActivityAnswer(actEl) {
     setResponse(teamKey, actEl.getAttribute("data-activity-id"), readActivityAnswer(actEl));
@@ -117,6 +125,47 @@ function selectLesson(btn, teamKey) {
   // Replace the single content panel with the selected lesson (fades in via CSS).
   const panel = nav.querySelector("[data-lesson-panel]");
   if (panel) panel.innerHTML = lessonPanelHtml(lessons[idx], idx, teamKey);
+}
+
+/* Collect the submission form + lesson context and save it to Supabase. */
+function handleAssignmentSubmit(form, teamKey) {
+  const msg = form.querySelector(".lp-submit-msg");
+  const val = name => (form.querySelector('[name="' + name + '"]').value || "").trim();
+  const employeeName = val("employeeName");
+  const submissionLink = val("submissionLink");
+  const textAnswer = val("textAnswer");
+  const notes = val("notes");
+
+  const err = t => { msg.style.color = "#dc2626"; msg.textContent = t; };
+  if (!employeeName) { err("اكتب اسمك الأول."); return; }
+  if (!submissionLink && !textAnswer) { err("أضف Submission Link أو Text Answer."); return; }
+
+  const lessonId = form.getAttribute("data-lesson-id");
+  const lesson = loadLessons().find(l => l.id === lessonId) || {};
+  const mod = loadContent().find(m => m.id === lesson.moduleId) || {};
+  const sub = {
+    id: (typeof SB !== "undefined" && SB.subId) ? SB.subId() : ("s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)),
+    academyKey: teamKey,
+    moduleId: lesson.moduleId || "",
+    moduleTitle: mod.moduleTitle || "",
+    lessonId: lessonId,
+    lessonTitle: lesson.lessonTitle || "",
+    assignmentTitle: (lesson.assignment && lesson.assignment.title) || "",
+    employeeName, submissionLink, textAnswer, notes,
+    status: "Pending Review"
+  };
+
+  const btn = form.querySelector('button[type="submit"]');
+  if (btn) btn.disabled = true;
+  msg.style.color = "#6b7280";
+  msg.textContent = "Submitting…";
+  pushSubmission(sub).then(ok => {
+    form.reset();
+    if (btn) btn.disabled = false;
+    msg.style.color = "#16a34a";
+    msg.textContent = ok ? "تم إرسال التسليم ✓" : "تم الحفظ محليًا — هيتزامن أول ما النت يرجع ✓";
+    setTimeout(() => { if (msg.textContent.indexOf("✓") >= 0) msg.textContent = ""; }, 5000);
+  });
 }
 
 /* Record a lesson as completed and update the list item + progress meters. */
@@ -337,6 +386,8 @@ function lessonPanelHtml(l, i, academyKey) {
     <div class="lesson-view">
       <h4 class="lesson-view-title">Lesson ${escHtml(l.lessonNumber) || (i + 1)} — ${escHtml(l.lessonTitle || l.contentType || "")}</h4>
       <div class="cm-rendered">${renderLessonContent(l.contentBody)}</div>
+      ${assignmentBlock(l.assignment)}
+      ${submissionForm(l)}
       <div class="lesson-complete">
         <button type="button" class="btn ${completed ? "is-done" : "btn-primary"} lesson-complete-btn"
                 data-complete="${escHtml(l.id)}" ${completed ? "disabled" : ""}>
@@ -344,6 +395,26 @@ function lessonPanelHtml(l, i, academyKey) {
         </button>
       </div>
     </div>`;
+}
+
+/* Submit-Assignment form, shown under a Published assignment. Returns "" when
+   there is no published assignment (so no form appears). */
+function submissionForm(l) {
+  if (!(l && l.assignment && l.assignment.status === "Published")) return "";
+  return `
+    <form class="lp-submit" data-submit-form data-lesson-id="${escHtml(l.id)}">
+      <h5 class="lp-submit-title">Submit Assignment</h5>
+      <div class="lp-submit-grid">
+        <input type="text" name="employeeName" placeholder="اسمك · Employee Name" autocomplete="name" required />
+        <input type="text" name="submissionLink" placeholder="Submission Link (Google Drive / URL)" />
+      </div>
+      <textarea name="textAnswer" rows="3" placeholder="Text Answer — اكتب إجابتك هنا"></textarea>
+      <textarea name="notes" rows="2" placeholder="Notes (اختياري)"></textarea>
+      <div class="lp-submit-actions">
+        <button type="submit" class="btn btn-primary">Submit Assignment</button>
+        <span class="lp-submit-msg" role="status" aria-live="polite"></span>
+      </div>
+    </form>`;
 }
 
 /* Lesson assignment shown under the lesson content — only when Published.

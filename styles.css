@@ -1247,6 +1247,35 @@ a.nav-item { color: #cdd8e6; }
   text-transform: none; letter-spacing: normal; margin: 0 0 10px;
 }
 @media (prefers-reduced-motion: reduce) { .lesson-view { animation: none; } }
+
+/* ---- Submit Assignment form (Learning Path) ---- */
+.lp-submit { margin-top: 14px; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fbfcfe; }
+.lp-submit-title { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--primary); margin: 0 0 10px; }
+.lp-submit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+@media (max-width: 560px) { .lp-submit-grid { grid-template-columns: 1fr; } }
+.lp-submit input, .lp-submit textarea {
+  width: 100%; font-family: inherit; font-size: 14px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fff; color: var(--text);
+}
+.lp-submit textarea { margin-bottom: 10px; resize: vertical; }
+.lp-submit input:focus, .lp-submit textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px rgba(37, 99, 235, .12); }
+.lp-submit-actions { display: flex; align-items: center; gap: 12px; }
+.lp-submit-msg { font-size: 13px; font-weight: 600; }
+
+/* ---- Manager review: submissions (Dashboard) ---- */
+.sub-count { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 10px; }
+.sub-card { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 12px; background: #fbfcfe; }
+.sub-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.sub-emp { font-size: 15px; font-weight: 800; color: var(--text); }
+.sub-date { font-size: 12px; color: var(--muted); margin-inline-start: auto; }
+.sub-ctx { font-size: 12.5px; color: var(--muted); font-weight: 600; margin-bottom: 10px; }
+.sub-field { font-size: 14px; margin-bottom: 8px; word-break: break-word; }
+.sub-answer { white-space: pre-wrap; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-top: 4px; font-size: 14px; }
+.sub-review { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); }
+.sub-review .field-full { grid-column: 1 / -1; }
+.sub-review-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; }
+.sub-msg { font-size: 13px; font-weight: 600; }
+@media (max-width: 560px) { .sub-review { grid-template-columns: 1fr; } }
 .cm-card-title { font-size: 16px; margin-bottom: 2px; }
 .cm-card-sub { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
 .cm-card-meta { display: flex; gap: 14px; font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 6px; }

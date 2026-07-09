@@ -133,18 +133,45 @@ function createRichEditor(mount, opts) {
     insertHTML(`<div class="callout callout-${type}"><p>${labels[type] || ""} — اكتب هنا…</p></div><p><br></p>`);
   }
 
-  function readImage(file) {
-    const rd = new FileReader();
-    rd.onload = () => insertImage(rd.result);
-    rd.readAsDataURL(file);
+  /* Save/restore the caret across the async upload so the image lands where
+     the cursor was. */
+  function saveRange() {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount && area.contains(sel.anchorNode)) return sel.getRangeAt(0).cloneRange();
+    return null;
   }
-  function insertImage(dataUrl) {
+  function restoreRange(range) {
+    area.focus();
+    if (range) { const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range); }
+  }
+  function insertImage(url) {
     insertHTML(
-      `<figure class="rte-figure"><span class="rte-img"><img src="${dataUrl}" alt=""></span>` +
+      `<figure class="rte-figure rte-size-md"><img src="${url}" alt="">` +
       `<figcaption>Caption…</figcaption></figure><p><br></p>`);
   }
+
+  /* Upload the image to Supabase Storage, then insert its URL at the caret.
+     No base64 — the lesson HTML stores the URL only. */
+  function handleImageFile(file) {
+    if (!file || file.type.indexOf("image/") !== 0) return;
+    const range = saveRange();
+    if (typeof SB !== "undefined" && SB && SB.enabled && SB.enabled() && SB.uploadImage) {
+      SB.uploadImage(file).then(url => {
+        restoreRange(range);
+        insertImage(url);
+      }).catch(err => {
+        console.error("Image upload failed", err);
+        alert("تعذّر رفع الصورة إلى Supabase Storage. تأكد إن bucket \"lesson-images\" متعمل (شغّل storage_setup.sql).");
+      });
+    } else {
+      // Demo mode only (Supabase not configured): fall back to a data URL.
+      const rd = new FileReader();
+      rd.onload = () => { restoreRange(range); insertImage(rd.result); };
+      rd.readAsDataURL(file);
+    }
+  }
   imgInput.addEventListener("change", () => {
-    if (imgInput.files && imgInput.files[0]) readImage(imgInput.files[0]);
+    if (imgInput.files && imgInput.files[0]) handleImageFile(imgInput.files[0]);
     imgInput.value = "";
   });
 
@@ -153,8 +180,57 @@ function createRichEditor(mount, opts) {
   area.addEventListener("dragleave", () => area.classList.remove("rte-dragover"));
   area.addEventListener("drop", e => {
     const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []).filter(f => f.type.indexOf("image/") === 0);
-    if (files.length) { e.preventDefault(); files.forEach(readImage); }
+    if (files.length) { e.preventDefault(); files.forEach(handleImageFile); }
     area.classList.remove("rte-dragover");
+  });
+
+  /* ---- Image resize (small / medium / large) ---- */
+  let imgBar = null, selectedFig = null;
+  function clearImgBar() {
+    if (selectedFig) selectedFig.classList.remove("rte-selected");
+    if (imgBar) { imgBar.remove(); imgBar = null; }
+    selectedFig = null;
+  }
+  function positionImgBar() {
+    if (!imgBar || !selectedFig) return;
+    const fr = selectedFig.getBoundingClientRect(), mr = mount.getBoundingClientRect();
+    imgBar.style.top = (fr.top - mr.top + 6) + "px";
+    imgBar.style.left = (fr.left - mr.left + 6) + "px";
+  }
+  function showImgBar(fig) {
+    clearImgBar();
+    selectedFig = fig;
+    fig.classList.add("rte-selected");
+    imgBar = document.createElement("div");
+    imgBar.className = "rte-imgbar";
+    imgBar.innerHTML =
+      '<button type="button" data-size="sm">S</button>' +
+      '<button type="button" data-size="md">M</button>' +
+      '<button type="button" data-size="lg">L</button>' +
+      '<button type="button" data-imgdel title="Remove">✕</button>';
+    mount.appendChild(imgBar);
+    positionImgBar();
+  }
+  area.addEventListener("click", e => {
+    const fig = e.target.closest("figure.rte-figure");
+    if (fig && area.contains(fig)) showImgBar(fig); else clearImgBar();
+  });
+  area.addEventListener("scroll", positionImgBar);
+  mount.addEventListener("mousedown", e => {
+    if (imgBar && imgBar.contains(e.target)) return;   // handled below
+    if (!e.target.closest("figure.rte-figure")) clearImgBar();
+  });
+  // (imgBar built lazily above; delegate its clicks here)
+  mount.addEventListener("click", e => {
+    if (!imgBar || !imgBar.contains(e.target)) return;
+    const b = e.target.closest("button");
+    if (!b || !selectedFig) return;
+    if (b.dataset.size) {
+      selectedFig.className = "rte-figure rte-size-" + b.dataset.size + " rte-selected";
+      sync(); positionImgBar();
+    } else if (b.hasAttribute("data-imgdel")) {
+      selectedFig.remove(); clearImgBar(); sync();
+    }
   });
 
   function normalizeLinks() {
@@ -169,6 +245,7 @@ function createRichEditor(mount, opts) {
   function getHTML() {
     const clone = area.cloneNode(true);
     clone.querySelectorAll("a[href]").forEach(a => { a.setAttribute("target", "_blank"); a.setAttribute("rel", "noopener"); });
+    clone.querySelectorAll(".rte-selected").forEach(el => el.classList.remove("rte-selected"));
     const hasText = (clone.textContent || "").trim().length > 0;
     const hasMedia = clone.querySelector("img,table,hr,figure,pre");
     if (!hasText && !hasMedia) return "";

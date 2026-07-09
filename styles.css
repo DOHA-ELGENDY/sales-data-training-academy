@@ -929,22 +929,22 @@ a.nav-item { color: #cdd8e6; }
 }
 .lesson-acc-item.open { border-color: #bcd0f7; background: #fff; }
 .lesson-acc-head {
-  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; display: flex; align-items: center; justify-content: flex-start; gap: 10px;
   background: transparent; border: none; cursor: pointer; font-family: inherit;
-  text-align: right; padding: 12px 14px;
+  text-align: inherit; padding: 12px 14px;
   transition: background .18s var(--ease);
 }
 .lesson-acc-head:hover { background: #f4f7fd; }
 .lesson-acc-head:focus-visible { outline: none; box-shadow: inset 0 0 0 2px rgba(37, 99, 235, .4); }
 .lesson-acc-title { font-size: 14px; font-weight: 600; color: var(--text); }
-.lesson-acc-caret { color: var(--muted); font-size: 14px; flex-shrink: 0; transition: transform .25s var(--ease); }
-.lesson-acc-item.open .lesson-acc-caret { transform: rotate(180deg); color: var(--primary); }
+.lesson-acc-caret { color: var(--muted); font-size: 11px; flex-shrink: 0; transition: transform .25s var(--ease); }
+.lesson-acc-item.open .lesson-acc-caret { transform: rotate(90deg); color: var(--primary); }
 .lesson-acc-body {
   max-height: 0; overflow: hidden; padding: 0 14px;
   transition: max-height .3s var(--ease), padding .3s var(--ease);
 }
 .lesson-acc-item.open .lesson-acc-body {
-  max-height: 2000px; padding: 4px 14px 14px; border-top: 1px solid var(--border);
+  max-height: 6000px; padding: 4px 14px 14px; border-top: 1px solid var(--border);
 }
 @media (prefers-reduced-motion: reduce) {
   .lesson-acc-caret, .lesson-acc-body { transition: none; }
@@ -1121,7 +1121,7 @@ a.nav-item { color: #cdd8e6; }
 /* ============================================================
    RICH TEXT EDITOR (Lesson Content) + rendered rich content
    ============================================================ */
-.rte { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); overflow: hidden; }
+.rte { position: relative; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); overflow: hidden; }
 .rte-toolbar {
   display: flex; flex-wrap: wrap; gap: 2px; align-items: center;
   padding: 6px; border-bottom: 1px solid var(--border); background: #f7f9fc;
@@ -1171,9 +1171,26 @@ a.nav-item { color: #cdd8e6; }
 .rte-table th, .cm-rendered table th { background: #eef2fb; font-weight: 700; }
 .rte-figure { margin: 12px 0; }
 .rte-figure figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.rte-figure img { display: block; height: auto; max-width: 100%; border-radius: 6px; }
+/* Image size options (small / medium / large) — apply in editor + rendered view */
+.rte-size-sm img { max-width: 240px; }
+.rte-size-md img { max-width: 460px; }
+.rte-size-lg img { max-width: 100%; }
+/* Legacy inline-resize wrapper (older images) */
 .rte-img { display: inline-block; overflow: hidden; max-width: 100%; }
 .rte-img img { display: block; width: 100%; height: auto; border-radius: 6px; }
 .rte-area .rte-img { resize: horizontal; min-width: 60px; }
+/* Floating S/M/L resize toolbar over a selected image (editor only) */
+.rte-imgbar {
+  position: absolute; z-index: 5; display: flex; gap: 2px; padding: 3px;
+  background: #0e2340; border-radius: 8px; box-shadow: 0 4px 12px rgba(15, 37, 64, .3);
+}
+.rte-imgbar button {
+  min-width: 26px; height: 24px; padding: 0 6px; border: none; border-radius: 5px;
+  background: transparent; color: #fff; font: 700 12px/1 inherit; cursor: pointer;
+}
+.rte-imgbar button:hover { background: rgba(255, 255, 255, .18); }
+.rte-figure.rte-selected { outline: 2px solid var(--primary); outline-offset: 2px; }
 .callout { margin: 12px 0; padding: 12px 14px; border-radius: 8px; border-inline-start: 4px solid; font-size: 14px; }
 .callout p { margin: 0; }
 .callout-info { background: #eaf3ff; border-color: #2563eb; }

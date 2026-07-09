@@ -42,28 +42,45 @@ document.addEventListener("DOMContentLoaded", () => {
     if (ok) { renderCmModules(teamKey, ac); renderAcademyProgress(teamKey); }
   });
 
-  // Lesson navigation: clicking a lesson in the list shows ONLY that lesson's
-  // content in the module's single content panel (one lesson visible at a time).
+  // Lesson accordion: clicking a lesson header expands it and collapses the
+  // others in that module (one lesson open at a time). Marks it In Progress.
   container.addEventListener("click", e => {
-    const btn = e.target.closest("[data-lesson-select]");
-    if (!btn || !container.contains(btn)) return;
-    selectLesson(btn, teamKey);
+    const head = e.target.closest("[data-lesson-toggle]");
+    if (!head || !container.contains(head)) return;
+    const item = head.closest(".lesson-acc-item");
+    const acc = head.closest(".lesson-acc");
+    if (!item || !acc) return;
+    const willOpen = !item.classList.contains("open");
+    acc.querySelectorAll(".lesson-acc-item.open").forEach(it => {
+      it.classList.remove("open");
+      const h = it.querySelector("[data-lesson-toggle]");
+      if (h) h.setAttribute("aria-expanded", "false");
+    });
+    if (willOpen) {
+      item.classList.add("open");
+      head.setAttribute("aria-expanded", "true");
+      const id = item.getAttribute("data-lesson-id");
+      if (id && !isLessonCompleted(teamKey, id)) {
+        setLessonStatus(teamKey, id, "in-progress");
+        item.classList.add("is-inprogress");
+      }
+    }
   });
 
-  // Opening a module marks its auto-selected first lesson "In Progress"
-  // (runs after the accordion toggles, so we read the final open state).
+  // Opening a module marks its default-open lesson "In Progress" (runs after
+  // the module accordion toggles, so we read the final open state).
   container.addEventListener("click", e => {
     const head = e.target.closest("[data-acc-toggle]");
     if (!head || !container.contains(head)) return;
     setTimeout(() => {
       const card = head.closest(".level-card");
       if (!card || !card.classList.contains("open")) return;
-      const active = card.querySelector(".lesson-item.is-active");
-      if (!active) return;
-      const id = active.getAttribute("data-lesson-select");
+      const openItem = card.querySelector(".lesson-acc-item.open");
+      if (!openItem) return;
+      const id = openItem.getAttribute("data-lesson-id");
       if (id && !isLessonCompleted(teamKey, id)) {
         setLessonStatus(teamKey, id, "in-progress");
-        active.classList.add("is-inprogress");
+        openItem.classList.add("is-inprogress");
       }
     }, 0);
   });
@@ -99,33 +116,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (actEl && container.contains(actEl) && e.target.classList.contains("lp-act-short")) saveActivityAnswer(actEl);
   });
 });
-
-/* Select a lesson from the list: show only its content in the module's panel,
-   highlight it, and mark it "In Progress". */
-function selectLesson(btn, teamKey) {
-  const nav = btn.closest(".lesson-nav");
-  const card = btn.closest(".level-card");
-  if (!nav || !card) return;
-  const id = btn.getAttribute("data-lesson-select");
-  const moduleId = card.getAttribute("data-module-id");
-  const lessons = publishedLessonsForModule(moduleId);
-  const idx = lessons.findIndex(l => l.id === id);
-  if (idx < 0) return;
-
-  // Highlight (previous selection becomes inactive).
-  nav.querySelectorAll(".lesson-item.is-active").forEach(el => el.classList.remove("is-active"));
-  btn.classList.add("is-active");
-
-  // Viewing a not-yet-completed lesson marks it "In Progress".
-  if (!isLessonCompleted(teamKey, id)) {
-    setLessonStatus(teamKey, id, "in-progress");
-    btn.classList.add("is-inprogress");
-  }
-
-  // Replace the single content panel with the selected lesson (fades in via CSS).
-  const panel = nav.querySelector("[data-lesson-panel]");
-  if (panel) panel.innerHTML = lessonPanelHtml(lessons[idx], idx, teamKey);
-}
 
 /* Collect the submission form + lesson context and save it to Supabase. */
 function handleAssignmentSubmit(form, teamKey) {
@@ -168,7 +158,7 @@ function handleAssignmentSubmit(form, teamKey) {
   });
 }
 
-/* Record a lesson as completed and update the list item + progress meters. */
+/* Record a lesson as completed and update its accordion item + progress meters. */
 function markLessonCompleted(lessonId, teamKey, btn) {
   setLessonStatus(teamKey, lessonId, "completed");
 
@@ -177,15 +167,12 @@ function markLessonCompleted(lessonId, teamKey, btn) {
   btn.classList.add("is-done");
   btn.textContent = "✓ Lesson Completed";
 
+  // Reflect completion on this lesson's accordion item (green check).
+  const item = btn.closest(".lesson-acc-item");
+  if (item) { item.classList.remove("is-inprogress"); item.classList.add("is-completed"); }
+
   const card = btn.closest(".level-card");
   if (card) {
-    // Reflect completion on the matching lesson list item.
-    card.querySelectorAll(".lesson-item").forEach(it => {
-      if (it.getAttribute("data-lesson-select") === lessonId) {
-        it.classList.remove("is-inprogress");
-        it.classList.add("is-completed");
-      }
-    });
     // Refresh this module's counter.
     const moduleId = card.getAttribute("data-module-id");
     const el = card.querySelector(".mod-progress");
@@ -280,11 +267,11 @@ function moduleCard(m) {
   // Module Overview (description, objectives, duration, difficulty, prerequisites).
   const overview = moduleOverview(m);
 
-  // Published lessons → lesson list + single content panel (one lesson at a time).
+  // Published lessons → each lesson is its own accordion (one open at a time).
   const lessons = publishedLessonsForModule(m.id);
   let lessonsSection;
   if (lessons.length) {
-    lessonsSection = `<h4 class="module-lessons-title">Lessons</h4>${lessonNav(lessons, m.academyKey)}`;
+    lessonsSection = `<h4 class="module-lessons-title">Lessons</h4>${lessonAccordion(lessons, m.academyKey)}`;
   } else if (m.content || assignment || resources) {
     // Backward-compat for any legacy module-level content.
     const content = m.content ? `<h4>Learning Content</h4><div class="cm-rendered">${renderRichText(m.content)}</div>` : "";
@@ -349,50 +336,37 @@ function moduleProgressMarkup(done, total) {
     <div class="mod-bar"><span style="width:${pct}%"></span></div>`;
 }
 
-/* Lesson navigation: a list of the module's published lessons + a single content
-   panel. Only one lesson's content shows at a time; the first published lesson
-   is selected by default. (Assignment/Activities are intentionally not rendered
-   here yet — they will be added below the content later.) */
-function lessonNav(lessons, academyKey) {
-  const items = lessons.map((l, i) => lessonListItem(l, i, academyKey, i === 0)).join("");
-  const panel = lessonPanelHtml(lessons[0], 0, academyKey);
-  return `
-    <div class="lesson-nav">
-      <ul class="lesson-list">${items}</ul>
-      <div class="lesson-panel" data-lesson-panel>${panel}</div>
-    </div>`;
+/* Lessons as accordions inside a module — like the Module accordion. Each
+   lesson expands/collapses; only one is open at a time (the first is open by
+   default). Open shows Content, Assignment, Activities, and the complete action. */
+function lessonAccordion(lessons, academyKey) {
+  return `<div class="lesson-acc">${lessons.map((l, i) => lessonAccItem(l, i, academyKey, i === 0)).join("")}</div>`;
 }
 
-/* One lesson entry in the list. `active` marks the default/selected lesson. */
-function lessonListItem(l, i, academyKey, active) {
+function lessonAccItem(l, i, academyKey, openByDefault) {
   const status = getLessonStatus(academyKey, l.id);
-  const state = status === "completed" ? " is-completed" : (status === "in-progress" ? " is-inprogress" : "");
+  const completed = status === "completed";
+  const state = completed ? " is-completed" : (status === "in-progress" ? " is-inprogress" : "");
+  const open = openByDefault ? " open" : "";
   return `
-    <li>
-      <button type="button" class="lesson-item${active ? " is-active" : ""}${state}" data-lesson-select="${escHtml(l.id)}">
-        <span class="lesson-item-check" aria-hidden="true">✓</span>
-        <span class="lesson-item-text">
-          <span class="lesson-item-num">Lesson ${escHtml(l.lessonNumber) || (i + 1)}</span>
-          <span class="lesson-item-title">${escHtml(l.lessonTitle || l.contentType || "")}</span>
+    <div class="lesson-acc-item${state}${open}" data-lesson-id="${escHtml(l.id)}">
+      <button type="button" class="lesson-acc-head" data-lesson-toggle aria-expanded="${openByDefault ? "true" : "false"}">
+        <span class="lesson-acc-caret" aria-hidden="true">▶</span>
+        <span class="lesson-acc-title">
+          <span class="lesson-check" aria-hidden="true">✓</span><span class="lesson-dot" aria-hidden="true">●</span>Lesson ${escHtml(l.lessonNumber) || (i + 1)} — ${escHtml(l.lessonTitle || l.contentType || "")}
         </span>
       </button>
-    </li>`;
-}
-
-/* The single content panel: lesson title + content + completion button. */
-function lessonPanelHtml(l, i, academyKey) {
-  const completed = isLessonCompleted(academyKey, l.id);
-  return `
-    <div class="lesson-view">
-      <h4 class="lesson-view-title">Lesson ${escHtml(l.lessonNumber) || (i + 1)} — ${escHtml(l.lessonTitle || l.contentType || "")}</h4>
-      <div class="cm-rendered">${renderLessonContent(l.contentBody)}</div>
-      ${assignmentBlock(l.assignment)}
-      ${submissionForm(l)}
-      <div class="lesson-complete">
-        <button type="button" class="btn ${completed ? "is-done" : "btn-primary"} lesson-complete-btn"
-                data-complete="${escHtml(l.id)}" ${completed ? "disabled" : ""}>
-          ${completed ? "✓ Lesson Completed" : "Mark Lesson as Completed"}
-        </button>
+      <div class="lesson-acc-body">
+        <div class="cm-rendered">${renderLessonContent(l.contentBody)}</div>
+        ${assignmentBlock(l.assignment)}
+        ${submissionForm(l)}
+        ${activitiesBlock(l, academyKey)}
+        <div class="lesson-complete">
+          <button type="button" class="btn ${completed ? "is-done" : "btn-primary"} lesson-complete-btn"
+                  data-complete="${escHtml(l.id)}" ${completed ? "disabled" : ""}>
+            ${completed ? "✓ Lesson Completed" : "Mark Lesson as Completed"}
+          </button>
+        </div>
       </div>
     </div>`;
 }

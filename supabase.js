@@ -15,7 +15,10 @@ const SUPABASE_URL = "https://vdbbwhymywlndhvxzels.supabase.co";       // e.g. "
 const SUPABASE_ANON_KEY = "sb_publishable_yB_VEN5Qo1LlkkqqjEkc8Q_cEUmHPGj";  // the project's public "anon" key
 
 window.SB = (function () {
-  var REST = SUPABASE_URL ? SUPABASE_URL.replace(/\/+$/, "") + "/rest/v1" : "";
+  var ORIGIN = SUPABASE_URL ? SUPABASE_URL.replace(/\/+$/, "") : "";
+  var REST = ORIGIN ? ORIGIN + "/rest/v1" : "";
+  var STORAGE = ORIGIN ? ORIGIN + "/storage/v1" : "";
+  var IMAGE_BUCKET = "lesson-images";
 
   function enabled() { return !!(SUPABASE_URL && SUPABASE_ANON_KEY); }
   function enc(v) { return encodeURIComponent(v); }
@@ -195,6 +198,28 @@ window.SB = (function () {
     });
   }
 
+  /* ---------- Image upload (Supabase Storage, public bucket) ---------- */
+  async function uploadImage(file) {
+    if (!enabled()) throw new Error("Supabase not configured");
+    var ext = (((file.name || "").split(".").pop()) || "png").toLowerCase().replace(/[^a-z0-9]/g, "") || "png";
+    var path = "lessons/" + subId() + "." + ext;
+    var res = await fetch(STORAGE + "/object/" + IMAGE_BUCKET + "/" + path, {
+      method: "POST",
+      headers: {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+        "Content-Type": file.type || "application/octet-stream",
+        "x-upsert": "true"
+      },
+      body: file
+    });
+    if (!res.ok) {
+      var t = ""; try { t = await res.text(); } catch (e) {}
+      throw new Error("Storage upload " + res.status + " " + t);
+    }
+    return STORAGE + "/object/public/" + IMAGE_BUCKET + "/" + path;
+  }
+
   /* ---------- Connection test ---------- */
   async function ping() {
     if (!enabled()) return false;
@@ -212,6 +237,7 @@ window.SB = (function () {
     bulkUpsert: bulkUpsert,
     insertSubmission: insertSubmission, upsertSubmission: upsertSubmission,
     fetchSubmissions: fetchSubmissions, updateSubmission: updateSubmission,
+    uploadImage: uploadImage,
     moduleFromRow: moduleFromRow, lessonFromRow: lessonFromRow
   };
 })();

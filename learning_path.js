@@ -115,7 +115,69 @@ document.addEventListener("DOMContentLoaded", () => {
     const actEl = e.target.closest(".lp-activity");
     if (actEl && container.contains(actEl) && e.target.classList.contains("lp-act-short")) saveActivityAnswer(actEl);
   });
+
+  // Inline Knowledge Checks: immediate Correct/Incorrect feedback (no scoring).
+  container.addEventListener("click", e => {
+    const btn = e.target.closest(".kc-check");
+    if (btn && container.contains(btn)) checkKnowledgeAnswer(btn);
+  });
 });
+
+/* Turn each inline Knowledge Check block (data-kc) into an interactive widget. */
+function enhanceKnowledgeChecks(root) {
+  root.querySelectorAll(".kc-block[data-kc]").forEach(block => {
+    if (block.getAttribute("data-kc-ready")) return;
+    let kc;
+    try { kc = JSON.parse(block.getAttribute("data-kc")); } catch (e) { return; }
+    block.setAttribute("data-kc-ready", "1");
+    block.innerHTML = kcWidgetHtml(kc);
+  });
+}
+function kcWidgetHtml(kc) {
+  const name = "kc-" + Math.random().toString(36).slice(2, 9);
+  let body = "";
+  if (kc.type === "mcq") {
+    body = (kc.choices || []).map((c, i) =>
+      `<label class="kc-opt"><input type="radio" name="${name}" value="${i}"><span>${escHtml(c)}</span></label>`).join("");
+  } else if (kc.type === "truefalse") {
+    body = ["true", "false"].map(v =>
+      `<label class="kc-opt"><input type="radio" name="${name}" value="${v}"><span>${v === "true" ? "True" : "False"}</span></label>`).join("");
+  } else {
+    body = `<input type="text" class="kc-short-input" placeholder="إجابتك…">`;
+  }
+  return `
+    <div class="kc-q"><span class="kc-badge">Knowledge Check</span> ${escHtml(kc.question || "")}</div>
+    <div class="kc-opts">${body}</div>
+    <div class="kc-actions">
+      <button type="button" class="btn btn-primary kc-check">Check Answer</button>
+      <span class="kc-feedback" aria-live="polite"></span>
+    </div>`;
+}
+/* Compare the employee's answer to the stored correct answer and show feedback. */
+function checkKnowledgeAnswer(btn) {
+  const block = btn.closest(".kc-block");
+  if (!block) return;
+  let kc;
+  try { kc = JSON.parse(block.getAttribute("data-kc")); } catch (e) { return; }
+  const fb = block.querySelector(".kc-feedback");
+  let answered = true, correct = false;
+
+  if (kc.type === "short") {
+    const inp = block.querySelector(".kc-short-input");
+    const val = inp ? inp.value.trim().toLowerCase() : "";
+    if (!val) answered = false;
+    else correct = val === String(kc.correct == null ? "" : kc.correct).trim().toLowerCase();
+  } else {
+    const sel = block.querySelector('input[type="radio"]:checked');
+    if (!sel) answered = false;
+    else correct = kc.type === "mcq" ? (Number(sel.value) === Number(kc.correct)) : (String(sel.value) === String(kc.correct));
+  }
+
+  if (!answered) { fb.textContent = "اختَر إجابة الأول."; fb.className = "kc-feedback kc-warn"; return; }
+  block.classList.remove("is-correct", "is-incorrect");
+  if (correct) { fb.textContent = "✓ Correct"; fb.className = "kc-feedback kc-correct"; block.classList.add("is-correct"); }
+  else { fb.textContent = "✗ Incorrect"; fb.className = "kc-feedback kc-incorrect"; block.classList.add("is-incorrect"); }
+}
 
 /* Collect the submission form + lesson context and save it to Supabase. */
 function handleAssignmentSubmit(form, teamKey) {
@@ -241,6 +303,9 @@ function renderCmModules(teamKey, ac) {
 
   container.querySelectorAll(".reveal:not(.in)").forEach((el, i) =>
     setTimeout(() => el.classList.add("in"), 30 * i));
+
+  // Make inline Knowledge Checks interactive.
+  enhanceKnowledgeChecks(container);
 }
 
 /* Published module → open accordion card. */

@@ -64,6 +64,7 @@ function createRichEditor(mount, opts) {
       <button type="button" data-action="youtube" title="Insert YouTube video">📺</button>
       <button type="button" data-action="attach" title="Insert attachment (PDF/DOCX/PPTX/XLSX)">📎</button>
       <button type="button" data-action="resource" title="Insert resource link">🔖</button>
+      <button type="button" data-action="knowledge" title="Insert Knowledge Check">❓</button>
       <span class="rte-sep"></span>
       <button type="button" data-action="callout-info" title="Info callout">ℹ️</button>
       <button type="button" data-action="callout-note" title="Note callout">🗒️</button>
@@ -196,6 +197,7 @@ function createRichEditor(mount, opts) {
       case "youtube": insertYouTube(); break;
       case "attach": attachInput.click(); break;
       case "resource": insertResource(); break;
+      case "knowledge": openKcModal(); break;
       case "callout-info": case "callout-note": case "callout-warning": case "callout-tip":
         insertCallout(action.replace("callout-", "")); break;
     }
@@ -270,6 +272,110 @@ function createRichEditor(mount, opts) {
       `<span class="lp-resource-title">${esc(title)}</span>` +
       (desc ? `<span class="lp-resource-desc">${esc(desc)}</span>` : "") +
       `<span class="lp-resource-url">${esc(url)}</span></span></a></div><p><br></p>`);
+  }
+
+  /* ---- Inline Knowledge Check (modal builder) ---- */
+  let kcOverlay = null, kcChoices = [], kcSavedRange = null;
+  function buildKcModal() {
+    kcOverlay = document.createElement("div");
+    kcOverlay.className = "kc-modal-overlay";
+    kcOverlay.innerHTML =
+      '<div class="kc-modal" role="dialog" aria-modal="true">' +
+        '<h3 class="kc-modal-title">Insert Knowledge Check</h3>' +
+        '<label>Type</label>' +
+        '<select class="kc-m-type"><option value="mcq">Multiple Choice</option>' +
+        '<option value="truefalse">True / False</option><option value="short">Short Answer</option></select>' +
+        '<label>Question</label>' +
+        '<textarea class="kc-m-question" rows="2" placeholder="اكتب السؤال…"></textarea>' +
+        '<div class="kc-m-mcq"><label>Choices — اختَر الإجابة الصحيحة</label>' +
+          '<div class="kc-m-choices"></div>' +
+          '<button type="button" class="btn btn-ghost kc-m-addchoice">+ Add choice</button></div>' +
+        '<div class="kc-m-tf" hidden><label>Correct answer</label>' +
+          '<select class="kc-m-tfcorrect"><option value="true">True</option><option value="false">False</option></select></div>' +
+        '<div class="kc-m-short" hidden><label>Correct answer</label>' +
+          '<input type="text" class="kc-m-shortcorrect" placeholder="الإجابة الصحيحة"></div>' +
+        '<div class="kc-m-actions">' +
+          '<button type="button" class="btn btn-primary kc-m-insert">Insert</button>' +
+          '<button type="button" class="btn btn-ghost kc-m-cancel">Cancel</button>' +
+          '<span class="kc-m-msg form-msg"></span></div>' +
+      '</div>';
+    document.body.appendChild(kcOverlay);
+    const q = s => kcOverlay.querySelector(s);
+    q(".kc-m-type").addEventListener("change", kcTypeUI);
+    q(".kc-m-addchoice").addEventListener("click", () => { kcChoices.push({ text: "", correct: false }); renderKcChoices(); });
+    q(".kc-m-choices").addEventListener("input", e => {
+      const row = e.target.closest(".kc-choice-row");
+      if (row && e.target.classList.contains("kc-choice-text")) kcChoices[Number(row.dataset.i)].text = e.target.value;
+    });
+    q(".kc-m-choices").addEventListener("change", e => {
+      const c = e.target.closest(".kc-choice-correct");
+      if (c) { const i = Number(c.closest(".kc-choice-row").dataset.i); kcChoices.forEach((x, idx) => { x.correct = (idx === i); }); }
+    });
+    q(".kc-m-choices").addEventListener("click", e => {
+      const d = e.target.closest(".kc-choice-del");
+      if (d) { kcChoices.splice(Number(d.closest(".kc-choice-row").dataset.i), 1); renderKcChoices(); }
+    });
+    q(".kc-m-cancel").addEventListener("click", closeKcModal);
+    q(".kc-m-insert").addEventListener("click", insertKcFromModal);
+    kcOverlay.addEventListener("mousedown", e => { if (e.target === kcOverlay) closeKcModal(); });
+  }
+  function renderKcChoices() {
+    kcOverlay.querySelector(".kc-m-choices").innerHTML = kcChoices.map((c, i) =>
+      `<div class="kc-choice-row" data-i="${i}">` +
+      `<input type="radio" name="kcCorrect" class="kc-choice-correct" ${c.correct ? "checked" : ""}>` +
+      `<input type="text" class="kc-choice-text" value="${esc(c.text)}" placeholder="Choice ${i + 1}">` +
+      `<button type="button" class="btn btn-ghost kc-choice-del" title="Remove">✕</button></div>`).join("");
+  }
+  function kcTypeUI() {
+    const type = kcOverlay.querySelector(".kc-m-type").value;
+    kcOverlay.querySelector(".kc-m-mcq").hidden = (type !== "mcq");
+    kcOverlay.querySelector(".kc-m-tf").hidden = (type !== "truefalse");
+    kcOverlay.querySelector(".kc-m-short").hidden = (type !== "short");
+  }
+  function openKcModal() {
+    kcSavedRange = saveRange();
+    if (!kcOverlay) buildKcModal();
+    kcOverlay.querySelector(".kc-m-type").value = "mcq";
+    kcOverlay.querySelector(".kc-m-question").value = "";
+    kcOverlay.querySelector(".kc-m-tfcorrect").value = "true";
+    kcOverlay.querySelector(".kc-m-shortcorrect").value = "";
+    kcOverlay.querySelector(".kc-m-msg").textContent = "";
+    kcChoices = [{ text: "", correct: false }, { text: "", correct: false }];
+    renderKcChoices(); kcTypeUI();
+    kcOverlay.style.display = "flex";
+    kcOverlay.querySelector(".kc-m-question").focus();
+  }
+  function closeKcModal() { if (kcOverlay) kcOverlay.style.display = "none"; }
+  function insertKcFromModal() {
+    const type = kcOverlay.querySelector(".kc-m-type").value;
+    const question = kcOverlay.querySelector(".kc-m-question").value.trim();
+    const msg = kcOverlay.querySelector(".kc-m-msg");
+    const err = t => { msg.style.color = "#dc2626"; msg.textContent = t; };
+    if (!question) { err("Question مطلوب."); return; }
+    const kc = { type: type, question: question };
+    if (type === "mcq") {
+      const rows = kcChoices.map(c => ({ text: (c.text || "").trim(), correct: !!c.correct })).filter(c => c.text);
+      if (rows.length < 2) { err("محتاج خيارين على الأقل."); return; }
+      const ci = rows.findIndex(r => r.correct);
+      if (ci < 0) { err("اختَر الإجابة الصحيحة."); return; }
+      kc.choices = rows.map(r => r.text);
+      kc.correct = ci;
+    } else if (type === "truefalse") {
+      kc.correct = kcOverlay.querySelector(".kc-m-tfcorrect").value;
+    } else {
+      const ca = kcOverlay.querySelector(".kc-m-shortcorrect").value.trim();
+      if (!ca) { err("اكتب الإجابة الصحيحة."); return; }
+      kc.correct = ca;
+    }
+    const label = type === "mcq" ? "Multiple Choice" : (type === "truefalse" ? "True / False" : "Short Answer");
+    const html =
+      `<div class="kc-block" contenteditable="false" data-kc="${esc(JSON.stringify(kc))}">` +
+      `<span class="kc-block-badge">Knowledge Check</span>` +
+      `<span class="kc-block-q">${esc(question)}</span>` +
+      `<span class="kc-block-type">${label}</span></div><p><br></p>`;
+    restoreRange(kcSavedRange);
+    insertHTML(html);
+    closeKcModal();
   }
 
   function insertTable() {
@@ -405,7 +511,7 @@ function createRichEditor(mount, opts) {
     clone.querySelectorAll("a[href]").forEach(a => { a.setAttribute("target", "_blank"); a.setAttribute("rel", "noopener"); });
     clone.querySelectorAll(".rte-selected").forEach(el => el.classList.remove("rte-selected"));
     const hasText = (clone.textContent || "").trim().length > 0;
-    const hasMedia = clone.querySelector("img,table,hr,figure,pre,iframe,.lp-embed,.lp-file,.lp-resource");
+    const hasMedia = clone.querySelector("img,table,hr,figure,pre,iframe,.lp-embed,.lp-file,.lp-resource,.kc-block");
     if (!hasText && !hasMedia) return "";
     return clone.innerHTML.trim();
   }

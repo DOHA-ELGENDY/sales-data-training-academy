@@ -1237,6 +1237,61 @@ a.nav-item { color: #cdd8e6; }
 .lp-resource-title { font-size: 14px; font-weight: 700; color: var(--primary); }
 .lp-resource-desc { font-size: 13px; color: var(--text); }
 .lp-resource-url { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- Inline Knowledge Check (editor preview + Learning Path widget) ---- */
+.kc-block {
+  margin: 14px 0; padding: 14px 16px; border: 1px solid #bcd0f7;
+  border-left: 4px solid var(--primary); border-radius: var(--radius-sm); background: #eef4ff;
+}
+.rte-area .kc-block { cursor: default; }
+/* editor preview (static card) */
+.kc-block-badge, .kc-badge {
+  display: inline-block; background: var(--primary); color: #fff; font-size: 11px; font-weight: 700;
+  border-radius: 6px; padding: 1px 8px; text-transform: uppercase; letter-spacing: .4px;
+}
+.kc-block-q { display: block; font-size: 14px; font-weight: 600; margin: 8px 0 4px; }
+.kc-block-type { font-size: 12px; color: var(--muted); font-weight: 600; }
+/* Learning Path interactive widget */
+.kc-badge { margin-inline-end: 6px; }
+.kc-q { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 12px; }
+.kc-opts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.kc-opt { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text); cursor: pointer; }
+.kc-opt input { flex-shrink: 0; width: 16px; height: 16px; }
+.kc-short-input {
+  width: 100%; font-family: inherit; font-size: 14px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fff; color: var(--text);
+}
+.kc-actions { display: flex; align-items: center; gap: 12px; }
+.kc-check { padding: 8px 16px; font-size: 14px; }
+.kc-feedback { font-size: 13px; font-weight: 800; }
+.kc-feedback.kc-correct { color: var(--success); }
+.kc-feedback.kc-incorrect { color: var(--danger); }
+.kc-feedback.kc-warn { color: var(--warn); }
+.kc-block.is-correct { border-color: var(--success); border-left-color: var(--success); background: #f0faf4; }
+.kc-block.is-incorrect { border-color: var(--danger); border-left-color: var(--danger); background: #fdf2f2; }
+
+/* ---- Knowledge Check builder modal (Content Manager editor) ---- */
+.kc-modal-overlay {
+  position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center;
+  padding: 20px; background: rgba(15, 37, 64, .45);
+}
+.kc-modal {
+  width: 100%; max-width: 480px; max-height: 90vh; overflow: auto;
+  background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-lg); padding: 20px 22px;
+}
+.kc-modal-title { font-size: 17px; margin-bottom: 6px; }
+.kc-modal label { display: block; font-size: 13px; font-weight: 600; color: var(--text); margin: 12px 0 6px; }
+.kc-modal select, .kc-modal textarea, .kc-modal input[type="text"] {
+  width: 100%; font-family: inherit; font-size: 14px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fbfcfe; color: var(--text);
+}
+.kc-modal textarea { resize: vertical; }
+.kc-choice-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.kc-choice-row .kc-choice-correct { flex-shrink: 0; width: 18px; height: 18px; }
+.kc-choice-row .kc-choice-text { flex: 1; }
+.kc-choice-row .kc-choice-del { padding: 6px 11px; font-size: 13px; flex-shrink: 0; }
+.kc-m-addchoice { margin-top: 2px; }
+.kc-m-actions { display: flex; align-items: center; gap: 10px; margin-top: 18px; }
 .callout { margin: 12px 0; padding: 12px 14px; border-radius: 8px; border-inline-start: 4px solid; font-size: 14px; }
 .callout p { margin: 0; }
 .callout-info { background: #eaf3ff; border-color: #2563eb; }

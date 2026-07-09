@@ -150,12 +150,49 @@ window.SB = (function () {
     return true;
   }
 
+  /* ---------- Connection test ---------- */
+  async function ping() {
+    if (!enabled()) return false;
+    try {
+      var res = await fetch(REST + "/academies?select=key&limit=1", { headers: headers() });
+      return res.ok;
+    } catch (e) { return false; }
+  }
+
   return {
-    enabled: enabled,
+    enabled: enabled, ping: ping,
     fetchModules: fetchModules, fetchLessons: fetchLessons,
     upsertModule: upsertModule, upsertLesson: upsertLesson,
     deleteModule: deleteModule, deleteLesson: deleteLesson,
     bulkUpsert: bulkUpsert, insertSubmission: insertSubmission,
     moduleFromRow: moduleFromRow, lessonFromRow: lessonFromRow
   };
+})();
+
+/* ------------------------------------------------------------
+   Debug connection indicator — shows "Connected to Supabase"
+   (green) when the REST API answers on startup, otherwise
+   "Offline Mode" (grey). Debug aid only; remove any time.
+   ------------------------------------------------------------ */
+(function () {
+  if (typeof window === "undefined" || !window.addEventListener) return;
+  function show(connected) {
+    if (typeof document === "undefined" || !document.body) return;
+    var el = document.getElementById("sbStatus");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "sbStatus";
+      el.style.cssText =
+        "position:fixed;bottom:12px;left:12px;z-index:99999;" +
+        "font:600 12px/1 system-ui,Segoe UI,sans-serif;padding:7px 12px;" +
+        "border-radius:999px;color:#fff;box-shadow:0 4px 12px rgba(15,37,64,.2);" +
+        "pointer-events:none;opacity:.92;";
+      document.body.appendChild(el);
+    }
+    el.textContent = connected ? "Connected to Supabase" : "Offline Mode";
+    el.style.background = connected ? "#16a34a" : "#6b7280";
+  }
+  window.addEventListener("DOMContentLoaded", function () {
+    SB.ping().then(show).catch(function () { show(false); });
+  });
 })();

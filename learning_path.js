@@ -42,30 +42,30 @@ document.addEventListener("DOMContentLoaded", () => {
     if (ok) { renderCmModules(teamKey, ac); renderAcademyProgress(teamKey); }
   });
 
-  // Lesson accordion: expand the clicked lesson, collapse the rest in that
-  // module (one open at a time). Scoped to the module's own .lesson-acc.
+  // Lesson navigation: clicking a lesson in the list shows ONLY that lesson's
+  // content in the module's single content panel (one lesson visible at a time).
   container.addEventListener("click", e => {
-    const head = e.target.closest("[data-lesson-toggle]");
+    const btn = e.target.closest("[data-lesson-select]");
+    if (!btn || !container.contains(btn)) return;
+    selectLesson(btn, teamKey);
+  });
+
+  // Opening a module marks its auto-selected first lesson "In Progress"
+  // (runs after the accordion toggles, so we read the final open state).
+  container.addEventListener("click", e => {
+    const head = e.target.closest("[data-acc-toggle]");
     if (!head || !container.contains(head)) return;
-    const item = head.closest(".lesson-acc-item");
-    const acc = head.closest(".lesson-acc");
-    if (!item || !acc) return;
-    const willOpen = !item.classList.contains("open");
-    acc.querySelectorAll(".lesson-acc-item.open").forEach(it => {
-      it.classList.remove("open");
-      const h = it.querySelector("[data-lesson-toggle]");
-      if (h) h.setAttribute("aria-expanded", "false");
-    });
-    if (willOpen) {
-      item.classList.add("open");
-      head.setAttribute("aria-expanded", "true");
-      // Opening a not-yet-completed lesson marks it "In Progress".
-      const id = item.getAttribute("data-lesson-id");
+    setTimeout(() => {
+      const card = head.closest(".level-card");
+      if (!card || !card.classList.contains("open")) return;
+      const active = card.querySelector(".lesson-item.is-active");
+      if (!active) return;
+      const id = active.getAttribute("data-lesson-select");
       if (id && !isLessonCompleted(teamKey, id)) {
         setLessonStatus(teamKey, id, "in-progress");
-        item.classList.add("is-inprogress");
+        active.classList.add("is-inprogress");
       }
-    }
+    }, 0);
   });
 
   // "Mark Lesson as Completed" — record completion and refresh the counters
@@ -92,20 +92,52 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-/* Record a lesson as completed and update the lesson row + progress meters. */
+/* Select a lesson from the list: show only its content in the module's panel,
+   highlight it, and mark it "In Progress". */
+function selectLesson(btn, teamKey) {
+  const nav = btn.closest(".lesson-nav");
+  const card = btn.closest(".level-card");
+  if (!nav || !card) return;
+  const id = btn.getAttribute("data-lesson-select");
+  const moduleId = card.getAttribute("data-module-id");
+  const lessons = publishedLessonsForModule(moduleId);
+  const idx = lessons.findIndex(l => l.id === id);
+  if (idx < 0) return;
+
+  // Highlight (previous selection becomes inactive).
+  nav.querySelectorAll(".lesson-item.is-active").forEach(el => el.classList.remove("is-active"));
+  btn.classList.add("is-active");
+
+  // Viewing a not-yet-completed lesson marks it "In Progress".
+  if (!isLessonCompleted(teamKey, id)) {
+    setLessonStatus(teamKey, id, "in-progress");
+    btn.classList.add("is-inprogress");
+  }
+
+  // Replace the single content panel with the selected lesson (fades in via CSS).
+  const panel = nav.querySelector("[data-lesson-panel]");
+  if (panel) panel.innerHTML = lessonPanelHtml(lessons[idx], idx, teamKey);
+}
+
+/* Record a lesson as completed and update the list item + progress meters. */
 function markLessonCompleted(lessonId, teamKey, btn) {
   setLessonStatus(teamKey, lessonId, "completed");
 
-  const item = btn.closest(".lesson-acc-item");
-  if (item) { item.classList.remove("is-inprogress"); item.classList.add("is-completed"); }
   btn.disabled = true;
   btn.classList.remove("btn-primary");
   btn.classList.add("is-done");
   btn.textContent = "✓ Lesson Completed";
 
-  // Refresh this module's counter, then the academy summary.
   const card = btn.closest(".level-card");
   if (card) {
+    // Reflect completion on the matching lesson list item.
+    card.querySelectorAll(".lesson-item").forEach(it => {
+      if (it.getAttribute("data-lesson-select") === lessonId) {
+        it.classList.remove("is-inprogress");
+        it.classList.add("is-completed");
+      }
+    });
+    // Refresh this module's counter.
     const moduleId = card.getAttribute("data-module-id");
     const el = card.querySelector(".mod-progress");
     if (moduleId && el) {
@@ -203,7 +235,7 @@ function moduleCard(m) {
   const lessons = publishedLessonsForModule(m.id);
   let lessonsSection;
   if (lessons.length) {
-    lessonsSection = `<h4 class="module-lessons-title">Lessons</h4>${lessonView(lessons, m.academyKey)}`;
+    lessonsSection = `<h4 class="module-lessons-title">Lessons</h4>${lessonNav(lessons, m.academyKey)}`;
   } else if (m.content || assignment || resources) {
     // Backward-compat for any legacy module-level content.
     const content = m.content ? `<h4>Learning Content</h4><div class="cm-rendered">${renderRichText(m.content)}</div>` : "";
@@ -268,36 +300,50 @@ function moduleProgressMarkup(done, total) {
     <div class="mod-bar"><span style="width:${pct}%"></span></div>`;
 }
 
-/* Lessons as child accordions inside a module. Each lesson collapses/expands
-   like the module itself; only one lesson is open at a time (per module). */
-function lessonView(lessons, academyKey) {
-  const items = lessons.map((l, i) => {
-    const status = getLessonStatus(academyKey, l.id);
-    const completed = status === "completed";
-    const stateClass = completed ? "is-completed" : (status === "in-progress" ? "is-inprogress" : "");
-    return `
-    <div class="lesson-acc-item ${stateClass}" data-lesson-id="${escHtml(l.id)}">
-      <button type="button" class="lesson-acc-head" data-lesson-toggle aria-expanded="false">
-        <span class="lesson-acc-title">
-          <span class="lesson-check" aria-hidden="true">✓</span><span class="lesson-dot" aria-hidden="true">●</span>Lesson ${escHtml(l.lessonNumber) || (i + 1)} — ${escHtml(l.lessonTitle || l.contentType)}
+/* Lesson navigation: a list of the module's published lessons + a single content
+   panel. Only one lesson's content shows at a time; the first published lesson
+   is selected by default. (Assignment/Activities are intentionally not rendered
+   here yet — they will be added below the content later.) */
+function lessonNav(lessons, academyKey) {
+  const items = lessons.map((l, i) => lessonListItem(l, i, academyKey, i === 0)).join("");
+  const panel = lessonPanelHtml(lessons[0], 0, academyKey);
+  return `
+    <div class="lesson-nav">
+      <ul class="lesson-list">${items}</ul>
+      <div class="lesson-panel" data-lesson-panel>${panel}</div>
+    </div>`;
+}
+
+/* One lesson entry in the list. `active` marks the default/selected lesson. */
+function lessonListItem(l, i, academyKey, active) {
+  const status = getLessonStatus(academyKey, l.id);
+  const state = status === "completed" ? " is-completed" : (status === "in-progress" ? " is-inprogress" : "");
+  return `
+    <li>
+      <button type="button" class="lesson-item${active ? " is-active" : ""}${state}" data-lesson-select="${escHtml(l.id)}">
+        <span class="lesson-item-check" aria-hidden="true">✓</span>
+        <span class="lesson-item-text">
+          <span class="lesson-item-num">Lesson ${escHtml(l.lessonNumber) || (i + 1)}</span>
+          <span class="lesson-item-title">${escHtml(l.lessonTitle || l.contentType || "")}</span>
         </span>
-        <span class="lesson-acc-caret" aria-hidden="true">▾</span>
       </button>
-      <div class="lesson-acc-body">
-        <div class="cm-rendered">${renderLessonContent(l.contentBody)}</div>
-        ${assignmentBlock(l.assignment)}
-        ${activitiesBlock(l, academyKey)}
-        <div class="lesson-complete">
-          <button type="button" class="btn ${completed ? "is-done" : "btn-primary"} lesson-complete-btn"
-                  data-complete="${escHtml(l.id)}" ${completed ? "disabled" : ""}>
-            ${completed ? "✓ Lesson Completed" : "Mark Lesson as Completed"}
-          </button>
-        </div>
+    </li>`;
+}
+
+/* The single content panel: lesson title + content + completion button. */
+function lessonPanelHtml(l, i, academyKey) {
+  const completed = isLessonCompleted(academyKey, l.id);
+  return `
+    <div class="lesson-view">
+      <h4 class="lesson-view-title">Lesson ${escHtml(l.lessonNumber) || (i + 1)} — ${escHtml(l.lessonTitle || l.contentType || "")}</h4>
+      <div class="cm-rendered">${renderLessonContent(l.contentBody)}</div>
+      <div class="lesson-complete">
+        <button type="button" class="btn ${completed ? "is-done" : "btn-primary"} lesson-complete-btn"
+                data-complete="${escHtml(l.id)}" ${completed ? "disabled" : ""}>
+          ${completed ? "✓ Lesson Completed" : "Mark Lesson as Completed"}
+        </button>
       </div>
     </div>`;
-  }).join("");
-
-  return `<div class="lesson-acc">${items}</div>`;
 }
 
 /* Lesson assignment shown under the lesson content — only when Published.

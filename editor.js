@@ -20,11 +20,29 @@ function createRichEditor(mount, opts) {
       <button type="button" data-action="h2" title="Heading 2">H2</button>
       <button type="button" data-action="h3" title="Heading 3">H3</button>
       <button type="button" data-action="p" title="Paragraph">¶</button>
+      <select class="rte-select" data-fontfamily title="Font family">
+        <option value="">Font</option>
+        <option value="Arial, sans-serif">Arial</option>
+        <option value="'Segoe UI', sans-serif">Segoe UI</option>
+        <option value="Tahoma, sans-serif">Tahoma</option>
+        <option value="Georgia, serif">Georgia</option>
+        <option value="'Times New Roman', serif">Times</option>
+        <option value="'Courier New', monospace">Courier</option>
+        <option value="'Cairo', 'Segoe UI', sans-serif">Cairo</option>
+      </select>
+      <select class="rte-select" data-fontsize title="Font size">
+        <option value="">Size</option>
+        <option value="12">12</option><option value="14">14</option>
+        <option value="16">16</option><option value="18">18</option>
+        <option value="20">20</option><option value="24">24</option>
+        <option value="28">28</option><option value="32">32</option>
+      </select>
       <span class="rte-sep"></span>
       <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
       <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
       <button type="button" data-cmd="underline" title="Underline"><u>U</u></button>
-      <button type="button" data-action="highlight" title="Highlight">🖍️</button>
+      <label class="rte-color" title="Text color">A<input type="color" data-forecolor value="#1f2937"></label>
+      <label class="rte-color" title="Highlight color">🖍️<input type="color" data-hilite value="#fde68a"></label>
       <span class="rte-sep"></span>
       <button type="button" data-cmd="insertUnorderedList" title="Bullet list">•</button>
       <button type="button" data-cmd="insertOrderedList" title="Numbered list">1.</button>
@@ -34,6 +52,10 @@ function createRichEditor(mount, opts) {
       <button type="button" data-cmd="justifyRight" title="Align right">⇥</button>
       <button type="button" data-cmd="justifyCenter" title="Align center">↔</button>
       <button type="button" data-cmd="justifyLeft" title="Align left">⇤</button>
+      <button type="button" data-cmd="justifyFull" title="Justify">☰</button>
+      <button type="button" data-cmd="indent" title="Increase indent">»</button>
+      <button type="button" data-cmd="outdent" title="Decrease indent">«</button>
+      <button type="button" data-cmd="removeFormat" title="Remove formatting"><s>T</s></button>
       <span class="rte-sep"></span>
       <button type="button" data-action="link" title="Insert link">🔗</button>
       <button type="button" data-action="table" title="Insert table">▦</button>
@@ -94,8 +116,14 @@ function createRichEditor(mount, opts) {
     sync();
   }
 
-  /* Keep the selection when a toolbar button is pressed. */
-  toolbar.addEventListener("mousedown", e => { if (e.target.closest("button")) e.preventDefault(); });
+  /* Keep the selection when a toolbar control is used. Buttons preventDefault so
+     focus stays in the area; selects / color pickers steal focus, so we save the
+     range on mousedown and restore it before applying. */
+  let toolbarSel = null;
+  toolbar.addEventListener("mousedown", e => {
+    toolbarSel = saveRange();
+    if (e.target.closest("button")) e.preventDefault();
+  });
 
   toolbar.addEventListener("click", e => {
     const btn = e.target.closest("button");
@@ -104,6 +132,46 @@ function createRichEditor(mount, opts) {
     if (btn.dataset.cmd) { exec(btn.dataset.cmd); return; }
     doAction(btn.dataset.action);
   });
+
+  /* Font family / size selects + text-color / highlight color pickers. */
+  toolbar.addEventListener("change", e => {
+    const t = e.target;
+    if (t.matches("[data-fontfamily]")) {
+      if (t.value) { restoreRange(toolbarSel); applyInlineStyle("fontFamily", t.value); }
+      t.selectedIndex = 0;
+    } else if (t.matches("[data-fontsize]")) {
+      if (t.value) { restoreRange(toolbarSel); applyInlineStyle("fontSize", t.value + "px"); }
+      t.selectedIndex = 0;
+    } else if (t.matches("[data-forecolor]")) {
+      restoreRange(toolbarSel); exec("foreColor", t.value);
+    } else if (t.matches("[data-hilite]")) {
+      restoreRange(toolbarSel); applyHighlight(t.value);
+    }
+  });
+
+  /* Wrap the selection in a span with an inline style (font-size / font-family).
+     execCommand can't set arbitrary px sizes; this produces plain inline CSS
+     that renders anywhere, including the Learning Path. */
+  function applyInlineStyle(prop, value) {
+    area.focus();
+    const sel = window.getSelection();
+    if (!sel.rangeCount || sel.isCollapsed) return;
+    const range = sel.getRangeAt(0);
+    const span = document.createElement("span");
+    span.style[prop] = value;
+    try { range.surroundContents(span); }
+    catch (e) { span.appendChild(range.extractContents()); range.insertNode(span); }
+    const nr = document.createRange();
+    nr.selectNodeContents(span);
+    sel.removeAllRanges(); sel.addRange(nr);
+    sync();
+  }
+  function applyHighlight(color) {
+    area.focus();
+    try { document.execCommand("styleWithCSS", false, true); } catch (e) {}
+    if (!document.execCommand("hiliteColor", false, color)) document.execCommand("backColor", false, color);
+    sync();
+  }
 
   function doAction(action) {
     switch (action) {

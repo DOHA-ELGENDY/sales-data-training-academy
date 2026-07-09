@@ -232,7 +232,7 @@ function setResponse(academyKey, activityId, value) {
    supabase.js (window.SB), which uses plain fetch (real CORS, readable
    responses — no JSONP / no no-cors).
    - Read:  SB.fetchModules() / SB.fetchLessons() → refreshes the cache.
-   - Write: SB.upsert*/delete* → persists directly to Supabase.
+   - Write: SB.upsert / delete helpers → persist directly to Supabase.
      Writes are optimistic (cache first); a failed write is queued in an
      outbox and retried on next load / when the browser is back online.
    - First run against an empty database with existing local data seeds

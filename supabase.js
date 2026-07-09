@@ -11,8 +11,8 @@
       into the two constants below.
    Setup details: SUPABASE_BACKEND.md
    ============================================================ */
-const SUPABASE_URL = "";       // e.g. "https://abcdxyz.supabase.co"
-const SUPABASE_ANON_KEY = "";  // the project's public "anon" key
+const SUPABASE_URL = "https://vdbbwhymywlndhvxzels.supabase.co";       // e.g. "https://abcdxyz.supabase.co"
+const SUPABASE_ANON_KEY = "sb_publishable_yB_VEN5Qo1LlkkqqjEkc8Q_cEUmHPGj";  // the project's public "anon" key
 
 window.SB = (function () {
   var REST = SUPABASE_URL ? SUPABASE_URL.replace(/\/+$/, "") + "/rest/v1" : "";

@@ -165,7 +165,7 @@ function saveModule(e) {
   if (idx >= 0) CM_ITEMS[idx] = item; else CM_ITEMS.push(item);
   saveContent(CM_ITEMS);
   setSelectedAcademy(item.academyKey);
-  pushModule(item).then(refreshFromServer); // persist to Google Sheets, then re-sync
+  pushModule(item).then(refreshFromServer); // persist to Supabase, then re-sync
 
   resetForm();
   renderModuleList();
@@ -389,7 +389,7 @@ function saveLesson(e) {
     return;
   }
   setSelectedAcademy(item.academyKey);
-  pushLesson(item); // best-effort persist; localStorage stays authoritative for now
+  pushLesson(item); // persist to Supabase (source of truth); localStorage is cache
 
   clearLessonForm();
   renderLessonList();
@@ -466,7 +466,7 @@ function saveAssignment() {
   };
   lesson.updatedAt = nowISO();
   saveLessons(LESSON_ITEMS);
-  pushLesson(lesson); // best-effort; localStorage stays authoritative
+  pushLesson(lesson); // persist to Supabase (source of truth); localStorage is cache
   renderLessonList();
 
   msg.style.color = "#16a34a";

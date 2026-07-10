@@ -130,6 +130,7 @@ document.addEventListener("DOMContentLoaded", () => {
 function processKnowledgeChecks(root) {
   root.querySelectorAll(".lesson-acc-body > .cm-rendered").forEach(rendered => {
     rendered.querySelectorAll(".kc-block[data-kc]").forEach(enhanceKnowledgeCheck);
+    liftKcBlocks(rendered);   // pasted content nests blocks — lift KCs to top level
     gateLessonContent(rendered);
   });
 }
@@ -139,6 +140,27 @@ function enhanceKnowledgeCheck(block) {
   try { kc = JSON.parse(block.getAttribute("data-kc")); } catch (e) { return; }
   block.setAttribute("data-kc-ready", "1");
   block.innerHTML = kcWidgetHtml(kc);
+}
+/* Make each KC a direct child of `rendered`. A KC nested inside wrapper elements
+   (common with pasted content) is lifted out by splitting its ancestors: the
+   wrapper keeps the content BEFORE the KC, a shallow clone (same tag/styles)
+   takes the content AFTER it, and the KC is moved between them — repeated up to
+   `rendered`. Document order and surrounding styling are preserved. */
+function liftKcBlocks(rendered) {
+  Array.from(rendered.querySelectorAll(".kc-block")).forEach(block => {
+    let guard = 0;
+    while (block.parentElement && block.parentElement !== rendered && guard++ < 50) {
+      const parent = block.parentElement;
+      const grandparent = parent.parentElement;
+      if (!grandparent) break;
+      const after = parent.cloneNode(false); // same tag + attributes, no children
+      let sib = block.nextSibling;
+      while (sib) { const next = sib.nextSibling; after.appendChild(sib); sib = next; }
+      grandparent.insertBefore(block, parent.nextSibling);
+      if (after.childNodes.length) grandparent.insertBefore(after, block.nextSibling);
+      if (!parent.childNodes.length) parent.remove();
+    }
+  });
 }
 /* Move everything after each KC into a hidden gate (nested for multiple KCs). */
 function gateLessonContent(rendered) {
@@ -151,6 +173,7 @@ function gateLessonContent(rendered) {
       const gate = document.createElement("div");
       gate.className = "kc-gate";
       gate.hidden = true;
+      gate.style.display = "none"; // JS-driven hide (independent of CSS)
       el.after(gate);
       target = gate;
     }
@@ -220,6 +243,7 @@ function revealNextGate(cont) {
   cont.hidden = true;
   if (gate && gate.classList.contains("kc-gate")) {
     gate.hidden = false;
+    gate.style.display = "";
     gate.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 }

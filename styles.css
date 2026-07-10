@@ -1269,29 +1269,40 @@ a.nav-item { color: #cdd8e6; }
 .kc-feedback.kc-warn { color: var(--warn); }
 .kc-block.is-correct { border-color: var(--success); border-left-color: var(--success); background: #f0faf4; }
 .kc-block.is-incorrect { border-color: var(--danger); border-left-color: var(--danger); background: #fdf2f2; }
+.kc-continue { padding: 8px 16px; font-size: 14px; }
+.kc-explain { margin-top: 10px; font-size: 13.5px; color: var(--text); background: #fff; border: 1px dashed var(--border); border-radius: 8px; padding: 10px 12px; }
+/* Gated content revealed after answering a Knowledge Check correctly */
+.kc-gate[hidden] { display: none; }
+.kc-gate { animation: lessonIn .25s var(--ease) both; }
 
-/* ---- Knowledge Check builder modal (Content Manager editor) ---- */
-.kc-modal-overlay {
-  position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center;
-  padding: 20px; background: rgba(15, 37, 64, .45);
+/* ---- Knowledge Check editable card (Content Manager editor) ---- */
+.kc-edit {
+  margin: 14px 0; padding: 14px 16px; border: 1px solid #bcd0f7; border-left: 4px solid var(--primary);
+  border-radius: var(--radius-sm); background: #f4f8ff;
 }
-.kc-modal {
-  width: 100%; max-width: 480px; max-height: 90vh; overflow: auto;
-  background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-lg); padding: 20px 22px;
+.kc-edit-top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.kc-edit-badge {
+  display: inline-block; background: var(--primary); color: #fff; font-size: 11px; font-weight: 700;
+  border-radius: 6px; padding: 2px 8px; text-transform: uppercase; letter-spacing: .4px;
 }
-.kc-modal-title { font-size: 17px; margin-bottom: 6px; }
-.kc-modal label { display: block; font-size: 13px; font-weight: 600; color: var(--text); margin: 12px 0 6px; }
-.kc-modal select, .kc-modal textarea, .kc-modal input[type="text"] {
-  width: 100%; font-family: inherit; font-size: 14px; padding: 10px 12px;
-  border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fbfcfe; color: var(--text);
+.kc-edit .kc-f-type { margin-inline-start: auto; }
+.kc-edit select, .kc-edit input[type="text"] {
+  font-family: inherit; font-size: 14px; padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fff; color: var(--text);
 }
-.kc-modal textarea { resize: vertical; }
-.kc-choice-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.kc-choice-row .kc-choice-correct { flex-shrink: 0; width: 18px; height: 18px; }
-.kc-choice-row .kc-choice-text { flex: 1; }
-.kc-choice-row .kc-choice-del { padding: 6px 11px; font-size: 13px; flex-shrink: 0; }
-.kc-m-addchoice { margin-top: 2px; }
-.kc-m-actions { display: flex; align-items: center; gap: 10px; margin-top: 18px; }
+.kc-edit .kc-f-question { width: 100%; display: block; margin-bottom: 10px; font-weight: 600; }
+.kc-edit .kc-f-explanation { width: 100%; display: block; margin-top: 10px; }
+.kc-f-remove { border: none; background: transparent; color: var(--danger); cursor: pointer; font-size: 14px; padding: 2px 6px; border-radius: 6px; }
+.kc-f-remove:hover { background: #fdeaea; }
+.kc-f-body { display: flex; flex-direction: column; gap: 8px; }
+.kc-f-choice { display: flex; align-items: center; gap: 8px; }
+.kc-f-choice .kc-f-cradio { flex-shrink: 0; width: 18px; height: 18px; }
+.kc-f-choice .kc-f-ctext { flex: 1; }
+.kc-f-cdel { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; padding: 4px 8px; border-radius: 6px; }
+.kc-f-cdel:hover { background: #fdeaea; color: var(--danger); }
+.kc-f-addchoice { align-self: flex-start; border: none; background: #eef2fb; color: var(--primary); cursor: pointer; font: 600 13px/1 inherit; padding: 8px 12px; border-radius: 8px; }
+.kc-f-addchoice:hover { background: var(--primary); color: #fff; }
+.kc-f-lbl { font-size: 13px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px; }
 .callout { margin: 12px 0; padding: 12px 14px; border-radius: 8px; border-inline-start: 4px solid; font-size: 14px; }
 .callout p { margin: 0; }
 .callout-info { background: #eaf3ff; border-color: #2563eb; }

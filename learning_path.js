@@ -116,21 +116,45 @@ document.addEventListener("DOMContentLoaded", () => {
     if (actEl && container.contains(actEl) && e.target.classList.contains("lp-act-short")) saveActivityAnswer(actEl);
   });
 
-  // Inline Knowledge Checks: immediate Correct/Incorrect feedback (no scoring).
+  // Inline Knowledge Checks: answer → immediate feedback; correct reveals the
+  // gated content that follows (retry allowed on incorrect). No scoring.
   container.addEventListener("click", e => {
-    const btn = e.target.closest(".kc-check");
-    if (btn && container.contains(btn)) checkKnowledgeAnswer(btn);
+    const check = e.target.closest(".kc-check");
+    if (check && container.contains(check)) { checkKnowledgeAnswer(check); return; }
+    const cont = e.target.closest(".kc-continue");
+    if (cont && container.contains(cont)) revealNextGate(cont);
   });
 });
 
-/* Turn each inline Knowledge Check block (data-kc) into an interactive widget. */
-function enhanceKnowledgeChecks(root) {
-  root.querySelectorAll(".kc-block[data-kc]").forEach(block => {
-    if (block.getAttribute("data-kc-ready")) return;
-    let kc;
-    try { kc = JSON.parse(block.getAttribute("data-kc")); } catch (e) { return; }
-    block.setAttribute("data-kc-ready", "1");
-    block.innerHTML = kcWidgetHtml(kc);
+/* Make every inline Knowledge Check interactive, then gate the content that
+   follows each one (hidden until answered correctly). */
+function processKnowledgeChecks(root) {
+  root.querySelectorAll(".lesson-acc-body > .cm-rendered").forEach(rendered => {
+    rendered.querySelectorAll(".kc-block[data-kc]").forEach(enhanceKnowledgeCheck);
+    gateLessonContent(rendered);
+  });
+}
+function enhanceKnowledgeCheck(block) {
+  if (block.getAttribute("data-kc-ready")) return;
+  let kc;
+  try { kc = JSON.parse(block.getAttribute("data-kc")); } catch (e) { return; }
+  block.setAttribute("data-kc-ready", "1");
+  block.innerHTML = kcWidgetHtml(kc);
+}
+/* Move everything after each KC into a hidden gate (nested for multiple KCs). */
+function gateLessonContent(rendered) {
+  if (rendered.getAttribute("data-kc-gated")) return;
+  rendered.setAttribute("data-kc-gated", "1");
+  let target = rendered;
+  Array.from(rendered.children).forEach(el => {
+    if (target !== rendered) target.appendChild(el);
+    if (el.classList && el.classList.contains("kc-block")) {
+      const gate = document.createElement("div");
+      gate.className = "kc-gate";
+      gate.hidden = true;
+      el.after(gate);
+      target = gate;
+    }
   });
 }
 function kcWidgetHtml(kc) {
@@ -150,10 +174,12 @@ function kcWidgetHtml(kc) {
     <div class="kc-opts">${body}</div>
     <div class="kc-actions">
       <button type="button" class="btn btn-primary kc-check">Check Answer</button>
+      <button type="button" class="btn btn-primary kc-continue" hidden>Continue Reading →</button>
       <span class="kc-feedback" aria-live="polite"></span>
-    </div>`;
+    </div>
+    ${kc.explanation ? `<div class="kc-explain" hidden><strong>💡</strong> ${escHtml(kc.explanation)}</div>` : ""}`;
 }
-/* Compare the employee's answer to the stored correct answer and show feedback. */
+/* Compare the answer; on correct reveal Continue Reading, on incorrect allow retry. */
 function checkKnowledgeAnswer(btn) {
   const block = btn.closest(".kc-block");
   if (!block) return;
@@ -175,8 +201,27 @@ function checkKnowledgeAnswer(btn) {
 
   if (!answered) { fb.textContent = "اختَر إجابة الأول."; fb.className = "kc-feedback kc-warn"; return; }
   block.classList.remove("is-correct", "is-incorrect");
-  if (correct) { fb.textContent = "✓ Correct"; fb.className = "kc-feedback kc-correct"; block.classList.add("is-correct"); }
-  else { fb.textContent = "✗ Incorrect"; fb.className = "kc-feedback kc-incorrect"; block.classList.add("is-incorrect"); }
+
+  if (correct) {
+    fb.textContent = "✓ Correct"; fb.className = "kc-feedback kc-correct"; block.classList.add("is-correct");
+    const explain = block.querySelector(".kc-explain"); if (explain) explain.hidden = false;
+    btn.hidden = true;
+    const gate = block.nextElementSibling;
+    const cont = block.querySelector(".kc-continue");
+    if (cont && gate && gate.classList.contains("kc-gate") && gate.children.length) cont.hidden = false; // else nothing to reveal
+  } else {
+    fb.textContent = "✗ Incorrect — try again"; fb.className = "kc-feedback kc-incorrect"; block.classList.add("is-incorrect");
+  }
+}
+/* Reveal the gate that follows a KC when the employee clicks Continue Reading. */
+function revealNextGate(cont) {
+  const block = cont.closest(".kc-block");
+  const gate = block ? block.nextElementSibling : null;
+  cont.hidden = true;
+  if (gate && gate.classList.contains("kc-gate")) {
+    gate.hidden = false;
+    gate.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
 }
 
 /* Collect the submission form + lesson context and save it to Supabase. */
@@ -304,8 +349,8 @@ function renderCmModules(teamKey, ac) {
   container.querySelectorAll(".reveal:not(.in)").forEach((el, i) =>
     setTimeout(() => el.classList.add("in"), 30 * i));
 
-  // Make inline Knowledge Checks interactive.
-  enhanceKnowledgeChecks(container);
+  // Make inline Knowledge Checks interactive + gate the content after them.
+  processKnowledgeChecks(container);
 }
 
 /* Published module → open accordion card. */

@@ -21,14 +21,46 @@
         </div>
       </div>
 
-      <h1 class="entry-title">Learning Center</h1>
-      <p class="entry-sub">Select your team to open the correct training path.</p>
+      <!-- ===== Identification (first visit) ===== -->
+      <div id="identifyView" hidden>
+        <h1 class="entry-title">Welcome to the Learning Center</h1>
+        <p class="entry-sub">Please identify yourself before starting your training.</p>
 
-      <!-- Team cards are rendered data-driven from academies.js (one system, many academies) -->
-      <div class="team-grid" id="teamGrid"></div>
+        <form id="identifyForm" class="identify-form" autocomplete="off">
+          <div class="field">
+            <label for="idName">Employee Name *</label>
+            <input type="text" id="idName" list="empList" placeholder="اكتب اسمك · Your name" autocomplete="off" />
+            <datalist id="empList"></datalist>
+          </div>
+          <div class="field">
+            <label for="idTeam">Team *</label>
+            <select id="idTeam">
+              <option value="">Select team…</option>
+              <option value="Sales">Sales</option>
+              <option value="Sales Data">Sales Data</option>
+              <option value="Sales Accounting">Sales Accounting</option>
+            </select>
+          </div>
+          <div class="identify-actions">
+            <button type="submit" class="btn btn-primary">Continue</button>
+            <span class="form-msg" id="idMsg" role="status" aria-live="polite"></span>
+          </div>
+        </form>
+      </div>
+
+      <!-- ===== Team selection (after identification) ===== -->
+      <div id="teamsView" hidden>
+        <div class="entry-user" id="entryUser"></div>
+        <h1 class="entry-title">Learning Center</h1>
+        <p class="entry-sub">Select your team to open the correct training path.</p>
+
+        <!-- Team cards are rendered data-driven from academies.js (one system, many academies) -->
+        <div class="team-grid" id="teamGrid"></div>
+      </div>
     </div>
   </div>
 
+  <script src="identity.js"></script>
   <script src="supabase.js"></script>
   <script src="academies.js"></script>
   <script src="script.js"></script>

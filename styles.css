@@ -713,6 +713,55 @@ body {
 .entry-title { font-size: 30px; letter-spacing: -0.3px; margin-bottom: 8px; }
 .entry-sub { color: var(--muted); font-size: 15px; margin-bottom: 34px; }
 
+/* ---- Employee identification (Welcome screen) ---- */
+.identify-form {
+  max-width: 420px; margin: 0 auto; text-align: right;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 22px 24px; box-shadow: var(--shadow-sm);
+}
+.identify-form .field { display: flex; flex-direction: column; gap: 7px; margin-bottom: 16px; }
+.identify-form label { font-size: 13px; font-weight: 600; color: var(--text); }
+.identify-form input, .identify-form select {
+  font-family: inherit; font-size: 14px; padding: 12px 13px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fbfcfe; color: var(--text);
+}
+.identify-form input:focus, .identify-form select:focus {
+  outline: none; border-color: var(--primary); background: #fff; box-shadow: 0 0 0 4px rgba(37, 99, 235, .12);
+}
+.identify-actions { display: flex; align-items: center; gap: 12px; }
+.identify-actions .btn { width: auto; }
+
+/* Employee chip on the Learning Center (after identification) */
+.entry-user {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  max-width: 420px; margin: 0 auto 22px; padding: 10px 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px; box-shadow: var(--shadow-sm);
+}
+.entry-user-info { display: flex; align-items: center; gap: 10px; }
+.entry-user-ico { font-size: 20px; }
+.entry-user-text { display: flex; flex-direction: column; line-height: 1.2; text-align: right; }
+.entry-user-text strong { font-size: 14px; color: var(--text); }
+.entry-user-text span { font-size: 12px; color: var(--muted); }
+.entry-user-switch { padding: 7px 14px; font-size: 13px; }
+
+/* Employee chip injected into the portal sidebar */
+.emp-chip {
+  display: flex; align-items: center; gap: 8px; margin: 10px 14px 4px; padding: 8px 10px;
+  background: rgba(255, 255, 255, .07); border: 1px solid rgba(255, 255, 255, .1); border-radius: 10px;
+}
+.emp-chip-ico { font-size: 16px; }
+.emp-chip-text { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; flex: 1; text-align: right; }
+.emp-chip-text strong { font-size: 13px; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.emp-chip-text span { font-size: 11px; color: #9fb3cc; }
+.emp-chip-switch {
+  flex-shrink: 0; width: 26px; height: 26px; border: none; border-radius: 7px; cursor: pointer;
+  background: rgba(255, 255, 255, .12); color: #fff; font-size: 14px;
+}
+.emp-chip-switch:hover { background: rgba(255, 255, 255, .22); }
+
+/* "Submitting as …" line in the assignment submission form */
+.lp-submit-as { font-size: 13px; color: var(--text); margin-bottom: 10px; }
+
 .team-grid {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 20px; text-align: right;

@@ -490,7 +490,82 @@ function injectSwitchTeam() {
   foot.appendChild(wrap);
 }
 
+/* ---------- Employee identification gate (index.html) ---------- */
+function renderEntryUser() {
+  const el = document.getElementById("entryUser");
+  if (!el || typeof Identity === "undefined") return;
+  const id = Identity.get();
+  if (!id) { el.innerHTML = ""; return; }
+  el.innerHTML =
+    `<div class="entry-user-info"><span class="entry-user-ico">👤</span>` +
+    `<span class="entry-user-text"><strong>${escHtml(id.employeeName)}</strong><span>${escHtml(id.team)}</span></span></div>` +
+    `<button type="button" class="btn btn-ghost entry-user-switch" data-switch-employee>Switch Employee</button>`;
+}
+function initIdentityGate() {
+  const idView = document.getElementById("identifyView");
+  const teamsView = document.getElementById("teamsView");
+  if (!idView || !teamsView || typeof Identity === "undefined") return;
+
+  function showTeams() { idView.hidden = true; teamsView.hidden = false; renderEntryUser(); renderTeamCards(); }
+  function showIdentify() {
+    teamsView.hidden = true; idView.hidden = false;
+    const dl = document.getElementById("empList");
+    if (dl) dl.innerHTML = (Identity.employees || []).map(e => `<option value="${escHtml(e.name)}"></option>`).join("");
+    const nm = document.getElementById("idName"), tm = document.getElementById("idTeam"), m = document.getElementById("idMsg");
+    if (nm) { nm.value = ""; nm.focus(); }
+    if (tm) tm.value = "";
+    if (m) m.textContent = "";
+  }
+
+  if (Identity.isIdentified()) showTeams(); else showIdentify();
+
+  const form = document.getElementById("identifyForm");
+  if (form) form.addEventListener("submit", e => {
+    e.preventDefault();
+    const name = (document.getElementById("idName").value || "").trim();
+    const team = (document.getElementById("idTeam").value || "").trim();
+    const msg = document.getElementById("idMsg");
+    if (!name) { msg.style.color = "#dc2626"; msg.textContent = "Employee Name مطلوب."; return; }
+    if (!team) { msg.style.color = "#dc2626"; msg.textContent = "Team مطلوب."; return; }
+    Identity.set({ employeeName: name, team: team });
+    showTeams();
+  });
+
+  // If the chosen name matches a configured employee, prefill their team.
+  const nameInput = document.getElementById("idName");
+  if (nameInput) nameInput.addEventListener("change", () => {
+    const match = (Identity.employees || []).find(e => e.name === nameInput.value.trim());
+    if (match && match.team) document.getElementById("idTeam").value = match.team;
+  });
+
+  teamsView.addEventListener("click", e => {
+    if (e.target.closest("[data-switch-employee]")) { Identity.clear(); showIdentify(); }
+  });
+}
+
+/* ---------- Employee chip (injected into every portal sidebar) ---------- */
+function injectEmployeeChip() {
+  const sidebar = document.querySelector(".sidebar");
+  if (!sidebar || typeof Identity === "undefined" || sidebar.querySelector(".emp-chip")) return;
+  const id = Identity.get();
+  if (!id) return;
+  const chip = document.createElement("div");
+  chip.className = "emp-chip";
+  chip.innerHTML =
+    `<span class="emp-chip-ico">👤</span>` +
+    `<span class="emp-chip-text"><strong>${escHtml(id.employeeName)}</strong><span>${escHtml(id.team)}</span></span>` +
+    `<button type="button" class="emp-chip-switch" title="Switch Employee">↺</button>`;
+  const brand = sidebar.querySelector(".brand");
+  if (brand) brand.after(chip); else sidebar.prepend(chip);
+  chip.querySelector(".emp-chip-switch").addEventListener("click", () => {
+    Identity.clear();
+    location.href = "index.html";
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
-  renderTeamCards();
+  initIdentityGate();     // Learning Center welcome/identification gate
+  if (!document.getElementById("identifyView")) renderTeamCards(); // other pages that use #teamGrid
   injectSwitchTeam();
+  injectEmployeeChip();
 });

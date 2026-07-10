@@ -151,7 +151,9 @@ window.SB = (function () {
       lesson_title: s(x.lessonTitle),
       assignment_id: s(x.assignmentId),
       assignment_title: s(x.assignmentTitle),
+      employee_id: s(x.employeeId),
       employee_name: s(x.employeeName),
+      team: s(x.team),
       submission_link: s(x.submissionLink),
       text_answer: s(x.textAnswer),
       notes: s(x.notes),
@@ -166,7 +168,8 @@ window.SB = (function () {
       moduleId: r.module_id, moduleTitle: r.module_title,
       lessonId: r.lesson_id, lessonTitle: r.lesson_title,
       assignmentId: r.assignment_id, assignmentTitle: r.assignment_title,
-      employeeName: r.employee_name, submissionLink: r.submission_link,
+      employeeId: r.employee_id, employeeName: r.employee_name, team: r.team,
+      submissionLink: r.submission_link,
       textAnswer: r.text_answer, notes: r.notes, status: r.status || "Pending Review",
       score: r.score, feedback: r.feedback, reviewedAt: r.reviewed_at, updatedAt: r.updated_at
     };
@@ -193,8 +196,9 @@ window.SB = (function () {
   /* Backward-compatible helper used by assignment_M0.html. */
   async function insertSubmission(sub) {
     return upsertSubmission({
-      employeeName: sub.employeeName, assignmentId: sub.assignmentId,
-      submissionLink: sub.submissionLink, notes: sub.notes, status: "Pending Review"
+      employeeId: sub.employeeId, employeeName: sub.employeeName, team: sub.team,
+      assignmentId: sub.assignmentId, submissionLink: sub.submissionLink,
+      notes: sub.notes, status: "Pending Review"
     });
   }
 

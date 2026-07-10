@@ -49,8 +49,13 @@ function revealAll() {
 async function handleSubmit(e) {
   e.preventDefault();
 
+  // Identity (name / team / id) comes from the Identification Provider; fall back
+  // to the typed name if the employee hasn't been identified yet.
+  const ident = (typeof Identity !== "undefined") ? Identity.get() : null;
   const data = {
-    employeeName: (document.getElementById("empName").value || "").trim(),
+    employeeId: ident ? ident.employeeId : "",
+    employeeName: (ident && ident.employeeName) || (document.getElementById("empName").value || "").trim(),
+    team: ident ? ident.team : "",
     assignmentId: (document.getElementById("assignId").value || "").trim(),
     submissionLink: (document.getElementById("subLink").value || "").trim(),
     notes: (document.getElementById("notes").value || "").trim()
@@ -142,5 +147,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Assignment form (assignment_M0.html only)
   const form = document.getElementById("assignmentForm");
-  if (form) form.addEventListener("submit", handleSubmit);
+  if (form) {
+    form.addEventListener("submit", handleSubmit);
+    // Pre-fill the name from the Identification Provider (no extra typing).
+    const ident = (typeof Identity !== "undefined") ? Identity.get() : null;
+    const empName = document.getElementById("empName");
+    if (ident && ident.employeeName && empName && !empName.value) {
+      empName.value = ident.employeeName;
+      empName.readOnly = true;
+    }
+  }
 });

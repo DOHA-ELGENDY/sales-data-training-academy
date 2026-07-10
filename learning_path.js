@@ -251,8 +251,11 @@ function revealNextGate(cont) {
 /* Collect the submission form + lesson context and save it to Supabase. */
 function handleAssignmentSubmit(form, teamKey) {
   const msg = form.querySelector(".lp-submit-msg");
-  const val = name => (form.querySelector('[name="' + name + '"]').value || "").trim();
-  const employeeName = val("employeeName");
+  const val = name => { const f = form.querySelector('[name="' + name + '"]'); return f ? (f.value || "").trim() : ""; };
+  const ident = (typeof Identity !== "undefined") ? Identity.get() : null;
+  // Employee identity comes from the Identification Provider (no extra typing);
+  // fall back to the form field only if not identified yet.
+  const employeeName = (ident && ident.employeeName) || val("employeeName");
   const submissionLink = val("submissionLink");
   const textAnswer = val("textAnswer");
   const notes = val("notes");
@@ -264,17 +267,20 @@ function handleAssignmentSubmit(form, teamKey) {
   const lessonId = form.getAttribute("data-lesson-id");
   const lesson = loadLessons().find(l => l.id === lessonId) || {};
   const mod = loadContent().find(m => m.id === lesson.moduleId) || {};
-  const sub = {
-    id: (typeof SB !== "undefined" && SB.subId) ? SB.subId() : ("s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)),
-    academyKey: teamKey,
-    moduleId: lesson.moduleId || "",
-    moduleTitle: mod.moduleTitle || "",
-    lessonId: lessonId,
-    lessonTitle: lesson.lessonTitle || "",
-    assignmentTitle: (lesson.assignment && lesson.assignment.title) || "",
-    employeeName, submissionLink, textAnswer, notes,
-    status: "Pending Review"
-  };
+  // Auto-attach employeeId / employeeName / team / timestamp from the provider.
+  const sub = (typeof Identity !== "undefined" ? Identity.stamp({}) : {});
+  sub.id = (typeof SB !== "undefined" && SB.subId) ? SB.subId() : ("s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
+  sub.academyKey = teamKey;
+  sub.moduleId = lesson.moduleId || "";
+  sub.moduleTitle = mod.moduleTitle || "";
+  sub.lessonId = lessonId;
+  sub.lessonTitle = lesson.lessonTitle || "";
+  sub.assignmentTitle = (lesson.assignment && lesson.assignment.title) || "";
+  sub.employeeName = employeeName;   // provider value (or typed fallback)
+  sub.submissionLink = submissionLink;
+  sub.textAnswer = textAnswer;
+  sub.notes = notes;
+  sub.status = "Pending Review";
 
   const btn = form.querySelector('button[type="submit"]');
   if (btn) btn.disabled = true;
@@ -510,13 +516,17 @@ function lessonAccItem(l, i, academyKey, openByDefault) {
    there is no published assignment (so no form appears). */
 function submissionForm(l) {
   if (!(l && l.assignment && l.assignment.status === "Published")) return "";
+  // Employee identity is auto-attached from the Identification Provider — show it
+  // (read-only) rather than asking again; only prompt for the name if unidentified.
+  const ident = (typeof Identity !== "undefined") ? Identity.get() : null;
+  const nameRow = ident
+    ? `<div class="lp-submit-as">👤 <strong>${escHtml(ident.employeeName)}</strong> · ${escHtml(ident.team)}</div>`
+    : `<input type="text" name="employeeName" placeholder="اسمك · Employee Name" autocomplete="name" required />`;
   return `
     <form class="lp-submit" data-submit-form data-lesson-id="${escHtml(l.id)}">
       <h5 class="lp-submit-title">Submit Assignment</h5>
-      <div class="lp-submit-grid">
-        <input type="text" name="employeeName" placeholder="اسمك · Employee Name" autocomplete="name" required />
-        <input type="text" name="submissionLink" placeholder="Submission Link (Google Drive / URL)" />
-      </div>
+      ${nameRow}
+      <input type="text" name="submissionLink" placeholder="Submission Link (Google Drive / URL)" />
       <textarea name="textAnswer" rows="3" placeholder="Text Answer — اكتب إجابتك هنا"></textarea>
       <textarea name="notes" rows="2" placeholder="Notes (اختياري)"></textarea>
       <div class="lp-submit-actions">

@@ -21,7 +21,9 @@ create table public.submissions (
   lesson_title     text,
   assignment_id    text,
   assignment_title text,
+  employee_id      text,                 -- from the Identification layer
   employee_name    text,
+  team             text,                 -- from the Identification layer
   submission_link  text,
   text_answer      text,
   notes            text,
@@ -35,6 +37,7 @@ create table public.submissions (
 
 create index if not exists submissions_academy_idx on public.submissions (academy_key);
 create index if not exists submissions_lesson_idx  on public.submissions (lesson_id);
+create index if not exists submissions_team_idx    on public.submissions (team);
 create index if not exists submissions_status_idx  on public.submissions (status);
 create index if not exists submissions_created_idx on public.submissions (created_at desc);
 

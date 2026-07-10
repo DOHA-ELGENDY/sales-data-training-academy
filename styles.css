@@ -1240,37 +1240,52 @@ a.nav-item { color: #cdd8e6; }
 
 /* ---- Inline Knowledge Check (editor preview + Learning Path widget) ---- */
 .kc-block {
-  margin: 14px 0; padding: 14px 16px; border: 1px solid #bcd0f7;
-  border-left: 4px solid var(--primary); border-radius: var(--radius-sm); background: #eef4ff;
+  margin: 16px 0; padding: 14px 16px; border: 1px solid #d6e2fb;
+  border-inline-start: 4px solid var(--primary); border-radius: var(--radius-sm);
+  background: var(--surface); box-shadow: var(--shadow-sm);
 }
 .rte-area .kc-block { cursor: default; }
-/* editor preview (static card) */
+/* editor preview (static card, JS-off fallback) */
 .kc-block-badge, .kc-badge {
-  display: inline-block; background: var(--primary); color: #fff; font-size: 11px; font-weight: 700;
-  border-radius: 6px; padding: 1px 8px; text-transform: uppercase; letter-spacing: .4px;
+  display: inline-block; background: #eef2fb; color: var(--primary); font-size: 10.5px; font-weight: 800;
+  border-radius: 6px; padding: 3px 9px; text-transform: uppercase; letter-spacing: .6px;
 }
 .kc-block-q { display: block; font-size: 14px; font-weight: 600; margin: 8px 0 4px; }
 .kc-block-type { font-size: 12px; color: var(--muted); font-weight: 600; }
 /* Learning Path interactive widget */
-.kc-badge { margin-inline-end: 6px; }
-.kc-q { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 12px; }
+.kc-head { margin-bottom: 8px; }
+.kc-q { font-size: 15px; font-weight: 700; color: var(--text); line-height: 1.5; margin-bottom: 12px; }
 .kc-opts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
-.kc-opt { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text); cursor: pointer; }
-.kc-opt input { flex-shrink: 0; width: 16px; height: 16px; }
+.kc-opt {
+  display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text); cursor: pointer;
+  padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: #fbfcfe;
+  transition: border-color .15s var(--ease), background .15s var(--ease);
+}
+.kc-opt:hover { border-color: #bcd0f7; background: #f4f8ff; }
+.kc-opt:has(input:checked) { border-color: var(--primary); background: #eef2fb; font-weight: 600; }
+.kc-opt input { flex-shrink: 0; width: 16px; height: 16px; accent-color: var(--primary); }
 .kc-short-input {
   width: 100%; font-family: inherit; font-size: 14px; padding: 10px 12px;
   border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fff; color: var(--text);
 }
-.kc-actions { display: flex; align-items: center; gap: 12px; }
-.kc-check { padding: 8px 16px; font-size: 14px; }
-.kc-feedback { font-size: 13px; font-weight: 800; }
+.kc-short-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px rgba(37, 99, 235, .12); }
+.kc-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.kc-check { padding: 9px 18px; font-size: 14px; }
+.kc-continue {
+  padding: 9px 18px; font-size: 14px; background: var(--success); color: #fff;
+  box-shadow: 0 6px 16px rgba(22, 163, 74, .25);
+}
+.kc-continue:hover { background: #12833c; transform: translateY(-1px); }
+.kc-feedback { font-size: 13.5px; font-weight: 800; }
 .kc-feedback.kc-correct { color: var(--success); }
 .kc-feedback.kc-incorrect { color: var(--danger); }
 .kc-feedback.kc-warn { color: var(--warn); }
-.kc-block.is-correct { border-color: var(--success); border-left-color: var(--success); background: #f0faf4; }
-.kc-block.is-incorrect { border-color: var(--danger); border-left-color: var(--danger); background: #fdf2f2; }
-.kc-continue { padding: 8px 16px; font-size: 14px; }
-.kc-explain { margin-top: 10px; font-size: 13.5px; color: var(--text); background: #fff; border: 1px dashed var(--border); border-radius: 8px; padding: 10px 12px; }
+.kc-block.is-correct { border-color: #bfe6cd; border-inline-start-color: var(--success); }
+.kc-block.is-incorrect { border-color: #f3cfcf; border-inline-start-color: var(--danger); }
+.kc-explain {
+  margin-bottom: 12px; font-size: 13.5px; line-height: 1.6; color: var(--text);
+  background: #f4f7fd; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+}
 /* Gated content revealed after answering a Knowledge Check correctly */
 .kc-gate[hidden] { display: none; }
 .kc-gate { animation: lessonIn .25s var(--ease) both; }

@@ -67,21 +67,20 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Opening a module marks its default-open lesson "In Progress" (runs after
-  // the module accordion toggles, so we read the final open state).
+  // Any collapsed module must have all its lessons collapsed too (so reopening a
+  // module shows every lesson closed). Runs after the module accordion toggles;
+  // covers a module closed directly and one closed by opening another.
   container.addEventListener("click", e => {
     const head = e.target.closest("[data-acc-toggle]");
     if (!head || !container.contains(head)) return;
     setTimeout(() => {
-      const card = head.closest(".level-card");
-      if (!card || !card.classList.contains("open")) return;
-      const openItem = card.querySelector(".lesson-acc-item.open");
-      if (!openItem) return;
-      const id = openItem.getAttribute("data-lesson-id");
-      if (id && !isLessonCompleted(teamKey, id)) {
-        setLessonStatus(teamKey, id, "in-progress");
-        openItem.classList.add("is-inprogress");
-      }
+      container.querySelectorAll(".level-card:not(.open)").forEach(card => {
+        card.querySelectorAll(".lesson-acc-item.open").forEach(it => {
+          it.classList.remove("open");
+          const h = it.querySelector("[data-lesson-toggle]");
+          if (h) h.setAttribute("aria-expanded", "false");
+        });
+      });
     }, 0);
   });
 
@@ -170,16 +169,18 @@ function kcWidgetHtml(kc) {
     body = `<input type="text" class="kc-short-input" placeholder="إجابتك…">`;
   }
   return `
-    <div class="kc-q"><span class="kc-badge">Knowledge Check</span> ${escHtml(kc.question || "")}</div>
+    <div class="kc-head"><span class="kc-badge">Knowledge Check</span></div>
+    <div class="kc-q">${escHtml(kc.question || "")}</div>
     <div class="kc-opts">${body}</div>
+    ${kc.explanation ? `<div class="kc-explain" hidden><strong>💡</strong> ${escHtml(kc.explanation)}</div>` : ""}
     <div class="kc-actions">
       <button type="button" class="btn btn-primary kc-check">Check Answer</button>
-      <button type="button" class="btn btn-primary kc-continue" hidden>Continue Reading →</button>
+      <button type="button" class="btn kc-continue" hidden>Continue to the next part →</button>
       <span class="kc-feedback" aria-live="polite"></span>
-    </div>
-    ${kc.explanation ? `<div class="kc-explain" hidden><strong>💡</strong> ${escHtml(kc.explanation)}</div>` : ""}`;
+    </div>`;
 }
-/* Compare the answer; on correct reveal Continue Reading, on incorrect allow retry. */
+/* Grade the answer and, on any non-empty submission, reveal the Continue button
+   (correct or incorrect — participation, not blocking). Incorrect allows retry. */
 function checkKnowledgeAnswer(btn) {
   const block = btn.closest(".kc-block");
   if (!block) return;
@@ -200,18 +201,17 @@ function checkKnowledgeAnswer(btn) {
   }
 
   if (!answered) { fb.textContent = "اختَر إجابة الأول."; fb.className = "kc-feedback kc-warn"; return; }
-  block.classList.remove("is-correct", "is-incorrect");
 
-  if (correct) {
-    fb.textContent = "✓ Correct"; fb.className = "kc-feedback kc-correct"; block.classList.add("is-correct");
-    const explain = block.querySelector(".kc-explain"); if (explain) explain.hidden = false;
-    btn.hidden = true;
-    const gate = block.nextElementSibling;
-    const cont = block.querySelector(".kc-continue");
-    if (cont && gate && gate.classList.contains("kc-gate") && gate.children.length) cont.hidden = false; // else nothing to reveal
-  } else {
-    fb.textContent = "✗ Incorrect — try again"; fb.className = "kc-feedback kc-incorrect"; block.classList.add("is-incorrect");
-  }
+  // Show feedback + explanation + reveal Continue on ANY submitted answer.
+  block.classList.remove("is-correct", "is-incorrect");
+  block.classList.add("is-answered", correct ? "is-correct" : "is-incorrect");
+  fb.textContent = correct ? "✓ Correct" : "✗ Incorrect — you can try again or continue";
+  fb.className = "kc-feedback " + (correct ? "kc-correct" : "kc-incorrect");
+  const explain = block.querySelector(".kc-explain"); if (explain) explain.hidden = false;
+
+  const gate = block.nextElementSibling;
+  const cont = block.querySelector(".kc-continue");
+  if (cont && gate && gate.classList.contains("kc-gate") && gate.children.length) cont.hidden = false;
 }
 /* Reveal the gate that follows a KC when the employee clicks Continue Reading. */
 function revealNextGate(cont) {
@@ -450,7 +450,8 @@ function moduleProgressMarkup(done, total) {
    lesson expands/collapses; only one is open at a time (the first is open by
    default). Open shows Content, Assignment, Activities, and the complete action. */
 function lessonAccordion(lessons, academyKey) {
-  return `<div class="lesson-acc">${lessons.map((l, i) => lessonAccItem(l, i, academyKey, i === 0)).join("")}</div>`;
+  // Every lesson starts collapsed — the employee clicks one to open it.
+  return `<div class="lesson-acc">${lessons.map((l, i) => lessonAccItem(l, i, academyKey, false)).join("")}</div>`;
 }
 
 function lessonAccItem(l, i, academyKey, openByDefault) {

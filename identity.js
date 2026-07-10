@@ -1,21 +1,26 @@
 /* ============================================================
    Identification Provider (temporary — until WMS integration)
    ------------------------------------------------------------
-   Identifies WHO is using the Learning Center. This is NOT auth.
-   Everything else (Assignments, Activities, Progress, Submissions)
-   reads identity through window.Identity, so later you can replace
-   ONLY this file with a Workforce-Management provider that fills
-   employeeId / employeeName / team from the real login — no other
-   feature changes.
+   Identifies WHO is using the Learning Center and their ROLE. This is
+   NOT real auth (no passwords). Everything else (Assignments, Activities,
+   Progress, Submissions, navigation, page guards) reads identity through
+   window.Identity, so later you can replace ONLY this file with a
+   Workforce-Management provider that supplies the logged-in user + role.
+
+   TEMPORARY ROLE RULE: employeeName === "admin" → role "admin", else "employee".
 
    Interface:
      Identity.isIdentified() -> boolean
-     Identity.get()          -> { employeeId, employeeName, team } | null
-     Identity.set({employeeName, team}) -> saved record
-     Identity.clear()        -> forget (Switch Employee)
+     Identity.get()          -> { employeeId, employeeName, team, role } | null
+     Identity.getCurrentUser() -> same as get()
+     Identity.set({employeeName, team}) -> saved record (role derived)
+     Identity.clear()        -> forget (Switch Employee: name + team + role)
      Identity.stamp(payload) -> payload + {employeeId, employeeName, team, timestamp}
-     Identity.teams          -> allowed teams
-     Identity.employees      -> configurable employee list (empty = free text)
+     Identity.isAdmin()      -> boolean
+     Identity.requireAdmin() -> true, or redirects to Learning Path and returns false
+     Identity.isAdminPage(p) -> is a page admin-only (defaults to current page)
+     Identity.applyNav()     -> hide admin-only nav links for non-admins
+     Identity.teams / employees / ADMIN_PAGES  -> config (single source of truth)
    ============================================================ */
 window.Identity = (function () {
   var KEY = "sdta_identity_v1";
@@ -28,20 +33,43 @@ window.Identity = (function () {
     // { name: "Doha Elgendy", team: "Sales" },
   ];
 
+  // Single source of truth for admin-only pages (used by the guard AND the nav).
+  var ADMIN_PAGES = ["content_manager.html", "dashboard.html"];
+  var FALLBACK_PAGE = "learning_path.html";
+
   function uid() { return "emp_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
   function load() {
     try { var raw = localStorage.getItem(KEY); if (raw) return JSON.parse(raw); } catch (e) {}
     return null;
   }
-  function get() { return load(); }
+  /* Role for a record: stored role, else derived from the name (backward compat). */
+  function roleOf(rec) {
+    if (!rec) return null;
+    if (rec.role) return rec.role;
+    return String(rec.employeeName || "").trim().toLowerCase() === "admin" ? "admin" : "employee";
+  }
+
+  function get() {
+    var r = load();
+    if (!r) return null;
+    return {
+      employeeId: r.employeeId || "", employeeName: r.employeeName || "",
+      team: r.team || "", role: roleOf(r)
+    };
+  }
   function isIdentified() { var r = load(); return !!(r && r.employeeName && r.team); }
+  function isAdmin() { return roleOf(load()) === "admin"; }
+  function role() { return roleOf(load()); }
+
   function set(info) {
     info = info || {};
     var existing = load() || {};
+    var name = String(info.employeeName || "").trim();
     var rec = {
       employeeId: existing.employeeId || uid(),
-      employeeName: String(info.employeeName || "").trim(),
+      employeeName: name,
       team: String(info.team || "").trim(),
+      role: name.toLowerCase() === "admin" ? "admin" : "employee",
       identifiedAt: new Date().toISOString()
     };
     localStorage.setItem(KEY, JSON.stringify(rec));
@@ -61,8 +89,43 @@ window.Identity = (function () {
     return out;
   }
 
-  return {
-    isIdentified: isIdentified, get: get, set: set, clear: clear, stamp: stamp,
-    teams: TEAMS, employees: EMPLOYEES
+  /* ---------- Role-based navigation / access ---------- */
+  function currentPage() {
+    var p = "";
+    try { p = (location.pathname || "").split("/").pop(); } catch (e) {}
+    return p || "index.html";
+  }
+  function isAdminPage(page) { return ADMIN_PAGES.indexOf(page || currentPage()) >= 0; }
+
+  /* Guard an admin-only page: non-admins are redirected to the Learning Path. */
+  function requireAdmin() {
+    if (isAdmin()) return true;
+    try { location.replace(FALLBACK_PAGE); } catch (e) {}
+    return false;
+  }
+
+  /* Hide admin-only nav links for non-admins (config-driven, no per-page checks). */
+  function applyNav() {
+    if (typeof document === "undefined") return;
+    var admin = isAdmin();
+    var links = document.querySelectorAll(".nav .nav-item[href]");
+    for (var i = 0; i < links.length; i++) {
+      var href = (links[i].getAttribute("href") || "").split("?")[0].split("/").pop();
+      if (ADMIN_PAGES.indexOf(href) >= 0 && !admin) links[i].style.display = "none";
+    }
+  }
+
+  var api = {
+    isIdentified: isIdentified, get: get, getCurrentUser: get,
+    set: set, clear: clear, stamp: stamp,
+    isAdmin: isAdmin, role: role, requireAdmin: requireAdmin,
+    isAdminPage: isAdminPage, applyNav: applyNav,
+    teams: TEAMS, employees: EMPLOYEES, ADMIN_PAGES: ADMIN_PAGES
   };
+
+  // Guard direct access as early as possible (identity.js loads in <head>):
+  // a non-admin on an admin-only page is redirected to the Learning Path.
+  if (isAdminPage() && !isAdmin()) { try { location.replace(FALLBACK_PAGE); } catch (e) {} }
+
+  return api;
 })();

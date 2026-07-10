@@ -568,4 +568,5 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!document.getElementById("identifyView")) renderTeamCards(); // other pages that use #teamGrid
   injectSwitchTeam();
   injectEmployeeChip();
+  if (typeof Identity !== "undefined") Identity.applyNav(); // hide admin nav for employees
 });

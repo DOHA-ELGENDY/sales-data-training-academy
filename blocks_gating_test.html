@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Block Lesson Gating — Deterministic Test</title>
+  <!-- TEMPORARY test harness for the render-time Knowledge Check gating.
+       Loads the REAL lessonSegments / buildSegmentedLesson from academies.js and
+       asserts the exact required behaviour against a mock blocks array. Open this
+       file in a browser; all rows must be green. Safe to delete once verified. -->
+  <script src="academies.js"></script>
+  <style>
+    body { font: 14px/1.5 system-ui, sans-serif; margin: 24px; color: #111; }
+    h1 { font-size: 20px; }
+    .case { margin: 18px 0; padding: 12px 14px; border: 1px solid #ddd; border-radius: 8px; }
+    .row { padding: 4px 0; border-bottom: 1px dashed #eee; }
+    .pass { color: #0a7c2f; } .fail { color: #c0271e; font-weight: 700; }
+    #summary { font-size: 16px; font-weight: 700; margin: 12px 0; padding: 10px 14px; border-radius: 8px; }
+    #summary.ok { background: #e7f7ec; color: #0a7c2f; }
+    #summary.bad { background: #fdeceb; color: #c0271e; }
+    .preview { margin-top: 10px; padding: 10px; background: #fafafa; border: 1px solid #eee; border-radius: 6px; }
+    .kc-segment[hidden] { display: none !important; }
+    .lesson-block { padding: 2px 0; }
+    code { background: #f2f2f2; padding: 1px 4px; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <h1>Block Lesson Gating — Deterministic Test</h1>
+  <div id="summary">Running…</div>
+  <div id="out"></div>
+
+  <h2>Live DOM preview (mock lesson)</h2>
+  <div class="preview" id="preview"></div>
+
+  <script>
+    /* ---- The exact required test case ---- */
+    const KC_A = { id: "kcA", type: "mcq", question: "Question A?", choices: ["x", "y"], correct: 0 };
+    const KC_B = { id: "kcB", type: "truefalse", question: "Question B?", correct: "true" };
+    const BLOCKS = [
+      { id: "b1", type: "richtext", order: 1, status: "Published", data: { html: "<p>Rich Text A</p>" } },
+      { id: "b2", type: "knowledge", order: 2, status: "Published", data: KC_A },
+      { id: "b3", type: "richtext", order: 3, status: "Published", data: { html: "<p>Rich Text B</p>" } },
+      { id: "b4", type: "knowledge", order: 4, status: "Published", data: KC_B },
+      { id: "b5", type: "richtext", order: 5, status: "Published", data: { html: "<p>Rich Text C</p>" } },
+      { id: "b6", type: "summary", order: 6, status: "Published", data: { html: "<p>Summary</p>" } }
+    ];
+
+    const out = document.getElementById("out");
+    let passed = 0, failed = 0;
+    function assert(desc, cond) {
+      const row = document.createElement("div");
+      row.className = "row " + (cond ? "pass" : "fail");
+      row.textContent = (cond ? "✓ " : "✗ FAIL — ") + desc;
+      out.appendChild(row);
+      cond ? passed++ : failed++;
+    }
+    // Does a segment wrapper (and thus its blocks) render visibly?
+    function visible(host, segIndex) {
+      const w = host.querySelector(`.kc-segment[data-seg-index="${segIndex}"]`);
+      return !!w && !w.hidden && w.style.display !== "none";
+    }
+    function textOf(host, segIndex) {
+      const w = host.querySelector(`.kc-segment[data-seg-index="${segIndex}"]`);
+      return w ? w.textContent.replace(/\s+/g, " ").trim() : "";
+    }
+    // Visible text across only the currently-shown segments (what an employee sees).
+    function visibleText(host) {
+      return Array.from(host.querySelectorAll(".kc-segment"))
+        .filter(w => !w.hidden && w.style.display !== "none")
+        .map(w => w.textContent).join(" ").replace(/\s+/g, " ").trim();
+    }
+
+    /* ===== 1. Pure segmentation ===== */
+    const segs = lessonSegments(BLOCKS);
+    assert("splits into exactly 3 segments", segs.length === 3);
+    assert("segment 0 = [Rich Text A] gated by KC A", segs[0].content.length === 1 && segs[0].kc && kcBlockId(segs[0].kc) === "kcA");
+    assert("segment 1 = [Rich Text B] gated by KC B", segs[1].content.length === 1 && segs[1].kc && kcBlockId(segs[1].kc) === "kcB");
+    assert("segment 2 = [Rich Text C, Summary] with no KC", segs[2].content.length === 2 && !segs[2].kc);
+
+    /* ===== 2. Initial render (nothing passed) ===== */
+    const host = document.getElementById("preview");
+    buildSegmentedLesson(host, BLOCKS, new Set());
+    assert("INITIAL: Rich Text A visible", visible(host, 0) && textOf(host, 0).includes("Rich Text A"));
+    assert("INITIAL: Knowledge Check A present in segment 0", host.querySelectorAll('.kc-segment[data-seg-index="0"] .kc-block').length === 1);
+    assert("INITIAL: Rich Text B hidden", !visible(host, 1));
+    assert("INITIAL: Rich Text C + Summary hidden", !visible(host, 2));
+    assert("INITIAL: nothing else visible besides A", !/Rich Text B|Rich Text C|Summary/.test(visibleText(host)));
+
+    /* ===== 3. After passing KC A (revealed set has kcA) ===== */
+    buildSegmentedLesson(host, BLOCKS, new Set(["kcA"]));
+    assert("AFTER A: Rich Text A still visible", visible(host, 0));
+    assert("AFTER A: Rich Text B now visible", visible(host, 1) && textOf(host, 1).includes("Rich Text B"));
+    assert("AFTER A: Knowledge Check B present in segment 1", host.querySelectorAll('.kc-segment[data-seg-index="1"] .kc-block').length === 1);
+    assert("AFTER A: Rich Text C + Summary still hidden", !visible(host, 2));
+
+    /* ===== 4. After passing KC B too ===== */
+    buildSegmentedLesson(host, BLOCKS, new Set(["kcA", "kcB"]));
+    assert("AFTER B: Rich Text C visible", visible(host, 2) && textOf(host, 2).includes("Rich Text C"));
+    assert("AFTER B: Summary visible", textOf(host, 2).includes("Summary"));
+    assert("AFTER B: everything revealed", /Rich Text A/.test(visibleText(host)) && /Rich Text B/.test(visibleText(host)) && /Rich Text C/.test(visibleText(host)) && /Summary/.test(visibleText(host)));
+
+    /* ===== 5. Live reveal mechanic (single hidden→shown toggle, no node moving) ===== */
+    buildSegmentedLesson(host, BLOCKS, new Set());
+    const seg1 = host.querySelector('.kc-segment[data-seg-index="1"]');
+    seg1.hidden = false; seg1.style.display = "";               // what revealNextGate() does
+    assert("REVEAL: toggling segment 1 shows Rich Text B without a rebuild", visible(host, 1));
+    assert("REVEAL: segment 2 remains gated after only KC A continue", !visible(host, 2));
+
+    /* ===== 6. Edge cases ===== */
+    assert("no KC → one segment with all content", lessonSegments([
+      { id: "x1", type: "richtext", order: 1, status: "Published", data: { html: "only" } }
+    ]).length === 1);
+    assert("Draft blocks are excluded", lessonSegments([
+      { id: "d1", type: "richtext", order: 1, status: "Draft", data: { html: "draft" } },
+      { id: "d2", type: "richtext", order: 2, status: "Published", data: { html: "live" } }
+    ])[0].content.length === 1);
+    assert("blocks are ordered by .order before segmenting", (() => {
+      const s = lessonSegments([
+        { id: "o2", type: "richtext", order: 2, status: "Published", data: { html: "second" } },
+        { id: "o1", type: "richtext", order: 1, status: "Published", data: { html: "first" } }
+      ]);
+      return s[0].content[0].data.html === "first";
+    })());
+
+    // Restore the "initial" view for visual inspection.
+    buildSegmentedLesson(host, BLOCKS, new Set());
+
+    const sum = document.getElementById("summary");
+    sum.className = failed ? "bad" : "ok";
+    sum.textContent = failed
+      ? `${failed} test(s) FAILED, ${passed} passed`
+      : `All ${passed} tests passed ✓`;
+  </script>
+</body>
+</html>

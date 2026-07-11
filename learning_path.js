@@ -144,59 +144,73 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-/* Build the DOM for every block-based lesson from lesson.blocks (authoritative),
-   in exact saved order. Each block's HTML is parsed inside its OWN isolated
-   container so mis-nested pasted markup can never leak into a sibling block, the
-   Knowledge Check, or the gate. The Knowledge Check element is created directly
-   and its data-kc is set with native setAttribute (no string concatenation, no
-   manual escaping — so it can never be corrupted and always JSON-parses). A KC
-   opens a hidden gate that holds every following block; a later KC nests a new
-   gate. Runs before processKnowledgeChecks (which then just builds the widgets). */
-function hydrateBlockLessons(root) {
+/* Render every block-based lesson from lesson.blocks — the ONLY authoritative
+   source once blocks is non-empty (contentBody is ignored for these lessons).
+   The blocks are split into gated segments and the DOM is built once by
+   buildSegmentedLesson (see academies.js): content blocks in isolated wrappers,
+   each Knowledge Check gating the segment after it. Segments already passed (per
+   the saved revealed-state in localStorage) are shown; the rest stay hidden.
+   There is NO post-render DOM moving and NO DOM scanning to hide — visibility is
+   decided entirely at build time from the ordered blocks + revealed set. */
+function renderBlockLessons(root) {
   root.querySelectorAll(".cm-rendered[data-lesson-blocks]").forEach(host => {
     if (host.getAttribute("data-blocks-built")) return;
     host.setAttribute("data-blocks-built", "1");
     const lessonId = host.getAttribute("data-lesson-blocks");
     const lesson = (typeof loadLessons === "function" ? loadLessons() : []).find(l => l.id === lessonId);
     if (!lesson || !hasRealBlocks(lesson)) { console.warn("[blocks] no blocks for lesson", lessonId); return; }
-    const blocks = lesson.blocks.slice()
-      .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0))
-      .filter(b => b && b.status !== "Draft");
-    console.debug("[blocks] render lesson", lessonId, "→", blocks.map(b => b.type).join(", "));
-    host.innerHTML = "";
-    let target = host; // where the next block is appended (host, or the open gate)
-    blocks.forEach(b => {
-      if (b.type === "knowledge") {
-        const kcEl = document.createElement("div");
-        kcEl.className = "kc-block";
-        kcEl.setAttribute("data-kc", JSON.stringify(b.data || {})); // native escaping — safe
-        target.appendChild(kcEl);
-        const gate = document.createElement("div");
-        gate.className = "kc-gate";
-        gate.hidden = true;
-        gate.style.display = "none";
-        target.appendChild(gate);
-        target = gate; // subsequent blocks go inside this gate (nested for more KCs)
-      } else {
-        const wrap = document.createElement("div");
-        wrap.className = "lesson-block";
-        wrap.innerHTML = blockToHtml(b); // parsed in isolation inside this wrapper
-        target.appendChild(wrap);
-      }
-    });
+    const ctx = hostRevealContext(host);
+    const revealed = loadRevealedSet(ctx);
+    const kcEls = buildSegmentedLesson(host, lesson.blocks, revealed);
+    kcEls.forEach(enhanceKnowledgeCheck); // make each Knowledge Check interactive
+    console.debug("[blocks] render lesson", lessonId, "→ segments:", lessonSegments(lesson.blocks).length);
   });
 }
 
-/* Make every Knowledge Check interactive. Block-based lessons already have their
-   gates built by hydrateBlockLessons; legacy contentBody lessons are gated here
-   (lift nested inline KCs to top level, then hide content after each). */
+/* Make every LEGACY (contentBody) Knowledge Check interactive and gate the
+   content after it. Block-based lessons are fully handled by renderBlockLessons
+   and are skipped here — they never go through liftKcBlocks / gateLessonContent. */
 function processKnowledgeChecks(root) {
   root.querySelectorAll(".lesson-acc-body > .cm-rendered").forEach(rendered => {
+    if (rendered.getAttribute("data-blocks")) return; // block lesson → already rendered
     rendered.querySelectorAll(".kc-block[data-kc]").forEach(enhanceKnowledgeCheck);
-    if (rendered.getAttribute("data-blocks")) return; // gates already built per block
     liftKcBlocks(rendered);   // legacy pasted content nests blocks — lift KCs to top level
     gateLessonContent(rendered);
   });
+}
+
+/* ---- Revealed-segment persistence (temporary, localStorage) ----
+   Which Knowledge Checks an employee has already passed is keyed by
+   academyKey · moduleId · lessonId · employee identity, so revealed content
+   survives a refresh and is scoped to the individual employee. */
+function hostRevealContext(hostOrBlock) {
+  const item = hostOrBlock.closest ? hostOrBlock.closest(".lesson-acc-item") : null;
+  const lessonId = item ? (item.getAttribute("data-lesson-id") || "") : "";
+  const lesson = (typeof loadLessons === "function" ? loadLessons() : []).find(l => l.id === lessonId) || {};
+  const teamKey = (typeof getSelectedAcademy === "function") ? getSelectedAcademy() : "";
+  const ident = (typeof Identity !== "undefined") ? Identity.get() : null;
+  return {
+    academyKey: lesson.academyKey || teamKey || "",
+    moduleId: lesson.moduleId || "",
+    lessonId: lessonId,
+    employee: ident ? (ident.employeeId || ident.employeeName || "anon") : "anon"
+  };
+}
+function revealStorageKey(ctx) {
+  return `lp:revealed:${ctx.academyKey}:${ctx.moduleId}:${ctx.lessonId}:${ctx.employee}`;
+}
+function loadRevealedSet(ctx) {
+  try {
+    const raw = localStorage.getItem(revealStorageKey(ctx));
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch (e) { return new Set(); }
+}
+function persistRevealed(block) {
+  let kc; try { kc = JSON.parse(block.getAttribute("data-kc")); } catch (e) { return; }
+  const ctx = hostRevealContext(block);
+  const set = loadRevealedSet(ctx);
+  set.add(kc.id || "");
+  try { localStorage.setItem(revealStorageKey(ctx), JSON.stringify(Array.from(set))); } catch (e) {}
 }
 function enhanceKnowledgeCheck(block) {
   if (block.getAttribute("data-kc-ready")) return;
@@ -298,12 +312,19 @@ function checkKnowledgeAnswer(btn) {
   if (kcIsObjective(kc)) gradeObjectiveKc(block, kc);
   else submitDeliverableKc(block, kc, btn);
 }
-/* Reveal the Continue button once a KC is answered (only if there is gated
-   content after it). */
+/* Reveal the Continue button once a KC is answered — but only when there is a
+   next segment (block lessons) or gated content (legacy) to reveal. */
 function revealContinue(block) {
-  const gate = block.nextElementSibling;
   const cont = block.querySelector(".kc-continue");
-  if (cont && gate && gate.classList.contains("kc-gate") && gate.children.length) cont.hidden = false;
+  if (!cont) return;
+  const seg = block.closest(".kc-segment");
+  if (seg) { // block-based lesson: is there a following segment to reveal?
+    const next = seg.nextElementSibling;
+    if (next && next.classList.contains("kc-segment")) cont.hidden = false;
+    return;
+  }
+  const gate = block.nextElementSibling; // legacy contentBody gate
+  if (gate && gate.classList.contains("kc-gate") && gate.children.length) cont.hidden = false;
 }
 /* MCQ / True-False: immediate Correct/Incorrect. Any submitted answer reveals
    Continue (participation, not blocking). Incorrect allows retry. */
@@ -434,11 +455,26 @@ async function submitDeliverableKc(block, kc, btn) {
   revealContinue(block);
   if (typeof Track !== "undefined") Track.kcSubmitted({ academyKey: ctx.academyKey, moduleId: ctx.moduleId, lessonId: ctx.lessonId });
 }
-/* Reveal the gate that follows a KC when the employee clicks Continue Reading. */
+/* Reveal the content gated behind a KC when the employee clicks Continue.
+   Block lessons reveal the next pre-built segment (a single hidden→shown toggle,
+   no node moving) and persist that the KC was passed; legacy lessons reveal the
+   inline .kc-gate that follows the KC. */
 function revealNextGate(cont) {
   const block = cont.closest(".kc-block");
-  const gate = block ? block.nextElementSibling : null;
+  if (!block) return;
   cont.hidden = true;
+  const seg = block.closest(".kc-segment");
+  if (seg) { // block-based lesson: reveal the next segment
+    const next = seg.nextElementSibling;
+    if (next && next.classList.contains("kc-segment")) {
+      next.hidden = false;
+      next.style.display = "";
+      next.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+    persistRevealed(block);
+    return;
+  }
+  const gate = block.nextElementSibling; // legacy contentBody gate
   if (gate && gate.classList.contains("kc-gate")) {
     gate.hidden = false;
     gate.style.display = "";
@@ -584,8 +620,9 @@ function renderCmModules(teamKey, ac) {
   container.querySelectorAll(".reveal:not(.in)").forEach((el, i) =>
     setTimeout(() => el.classList.add("in"), 30 * i));
 
-  // Build block-based lessons (DOM, isolated per block) then make KCs interactive.
-  hydrateBlockLessons(container);
+  // Block lessons render deterministically from lesson.blocks (segment gating);
+  // legacy contentBody lessons get inline-KC gating.
+  renderBlockLessons(container);
   processKnowledgeChecks(container);
 }
 

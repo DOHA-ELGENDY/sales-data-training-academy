@@ -609,41 +609,107 @@ function blocksToHtml(blocks) {
 /* True when the lesson has an authored blocks array (authoritative source). */
 function hasRealBlocks(lesson) { return !!(lesson && Array.isArray(lesson.blocks) && lesson.blocks.length); }
 
-/* Learning-Path lesson content.
-   ------------------------------------------------------------------
-   For block-based lessons `lesson.blocks` is the AUTHORITATIVE source and is
-   rendered in exact saved order. Each block is placed in its OWN wrapper so a
-   Rich Text block's internal HTML (often pasted, mis-nested markup) can never
-   absorb or reorder the Knowledge Check or the blocks after it. Knowledge Check
-   gates are built HERE, deterministically at block boundaries: a KC block is
-   rendered, then every following block goes inside a hidden `.kc-gate`; a later
-   KC opens a new nested gate. No post-hoc DOM surgery (liftKcBlocks/
-   gateLessonContent) is needed or run for these lessons.
+/* ============================================================
+   BLOCK-BASED LESSON GATING — deterministic, render-time
+   ------------------------------------------------------------
+   `lesson.blocks` is the ONLY authoritative source once it has items
+   (contentBody is ignored for these lessons). The ordered blocks are split
+   into SEGMENTS at every Knowledge Check boundary, and the DOM is built once
+   from those segments — no post-render DOM moving, no DOM scanning to hide.
 
-   Legacy lessons (no blocks array) fall back to contentBody, where inline
-   Knowledge Checks are still gated by the post-hoc pass. */
-function renderLessonBlocksHtml(lesson) {
-  if (hasRealBlocks(lesson)) {
-    const blocks = lesson.blocks.slice()
-      .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0))
-      .filter(b => b && b.status !== "Draft");
-    if (!blocks.length) return '<p class="muted">لا يوجد محتوى.</p>';
-    let html = "", openGates = 0;
-    blocks.forEach(b => {
-      if (b.type === "knowledge") {
-        // The KC stays visible; everything after it is hidden until Continue.
-        html += blockToHtml(b);
-        html += '<div class="kc-gate" hidden style="display:none">';
-        openGates++;
-      } else {
-        // Isolate each block so mis-nested pasted HTML can't leak into siblings.
-        html += '<div class="lesson-block">' + blockToHtml(b) + '</div>';
-      }
-    });
-    html += "</div>".repeat(openGates); // close all open gates (nested for multiple KCs)
-    return html;
+   A segment = a run of content blocks followed by (at most) one Knowledge
+   Check. The KC gates the blocks AFTER it, i.e. the NEXT segment. Example:
+
+     Rich Text A · KC A · Rich Text B · KC B · Rich Text C · Summary
+       segment 0: [A]           kc: A     (visible from the start)
+       segment 1: [B]           kc: B     (revealed after A is answered)
+       segment 2: [C, Summary]  kc: null  (revealed after B is answered)
+
+   Segment i (i>0) is visible iff the KC of segment i-1 has been passed
+   (its id is in `revealedSet`). Revealing is a single `hidden` toggle on a
+   pre-built segment wrapper — never a node move, never a DOM scan.
+   ============================================================ */
+
+/* The stable Knowledge-Check id used for gating + revealed-state persistence.
+   It is the KC's own data.id (survives block reordering/re-saves); the block id
+   is only a fallback for malformed blocks. buildSegmentedLesson and
+   persistRevealed MUST agree on this, or restored progress never matches. */
+function kcBlockId(kcBlock) {
+  return (kcBlock && kcBlock.data && kcBlock.data.id) || (kcBlock && kcBlock.id) || "";
+}
+
+/* PURE: split ordered, non-Draft blocks into gated segments. Deterministic —
+   given the same blocks it always returns the same segment shape. Testable in
+   isolation with a mock blocks array (see blocks_gating_test.html). */
+function lessonSegments(blocks) {
+  const ordered = (blocks || []).slice()
+    .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0))
+    .filter(b => b && b.status !== "Draft");
+  const segments = [];
+  let current = { content: [], kc: null };
+  ordered.forEach(b => {
+    if (b.type === "knowledge") {
+      current.kc = b;                 // this KC gates everything that follows
+      segments.push(current);
+      current = { content: [], kc: null };
+    } else {
+      current.content.push(b);
+    }
+  });
+  // Trailing content after the last KC (or the whole lesson when there is no KC).
+  if (current.content.length || segments.length === 0) segments.push(current);
+  return segments;
+}
+
+/* DETERMINISTIC DOM BUILD: render `blocks` into `host` as gated segments.
+   `revealedSet` is a Set of Knowledge-Check ids the employee has already passed;
+   segments whose gating KC is not in it are hidden. Builds everything once and
+   returns the KC block elements (data-kc placeholders) for the caller to enhance
+   into interactive widgets. No localStorage / Identity dependency — pure DOM +
+   the supplied revealed set — so it is directly testable. */
+function buildSegmentedLesson(host, blocks, revealedSet) {
+  const revealed = revealedSet || new Set();
+  const segments = lessonSegments(blocks);
+  host.innerHTML = "";
+  if (!segments.length || (segments.length === 1 && !segments[0].content.length && !segments[0].kc)) {
+    host.innerHTML = '<p class="muted">لا يوجد محتوى.</p>';
+    return [];
   }
-  return renderLessonContent(lesson ? lesson.contentBody : "");
+  segments.forEach((seg, i) => {
+    const wrap = document.createElement("div");
+    wrap.className = "kc-segment";
+    wrap.setAttribute("data-seg-index", String(i));
+    // Segment 0 is always visible; a later segment shows only once the PREVIOUS
+    // segment's KC has been passed. This is decided here, at build time.
+    const prevKc = i > 0 ? segments[i - 1].kc : null;
+    const visible = i === 0 || (prevKc && revealed.has(kcBlockId(prevKc)));
+    if (!visible) { wrap.hidden = true; wrap.style.display = "none"; }
+
+    // Content blocks — each isolated so mis-nested pasted HTML can't leak out.
+    seg.content.forEach(b => {
+      const bw = document.createElement("div");
+      bw.className = "lesson-block";
+      bw.innerHTML = blockToHtml(b);
+      wrap.appendChild(bw);
+    });
+
+    // The Knowledge Check that gates the NEXT segment. Built with native
+    // setAttribute so the JSON in data-kc can never be corrupted.
+    if (seg.kc) {
+      const kcEl = document.createElement("div");
+      kcEl.className = "kc-block";
+      kcEl.setAttribute("data-kc", JSON.stringify(seg.kc.data || {}));
+      wrap.appendChild(kcEl);
+    }
+    host.appendChild(wrap);
+  });
+  return Array.from(host.querySelectorAll(".kc-block[data-kc]"));
+}
+
+if (typeof window !== "undefined") {
+  window.lessonSegments = lessonSegments;
+  window.buildSegmentedLesson = buildSegmentedLesson;
+  window.kcBlockId = kcBlockId;
 }
 
 /* ---------- Team selection cards (index.html) ---------- */

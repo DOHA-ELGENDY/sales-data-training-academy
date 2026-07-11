@@ -1365,6 +1365,9 @@ a.nav-item { color: #cdd8e6; }
 /* Gated content revealed after answering a Knowledge Check correctly */
 .kc-gate[hidden] { display: none; }
 .kc-gate { animation: lessonIn .25s var(--ease) both; }
+/* Block-lesson gated segments (render-time gating from lesson.blocks) */
+.kc-segment[hidden] { display: none !important; }
+.kc-segment { animation: lessonIn .25s var(--ease) both; }
 
 /* ---- Knowledge Check editable card (Content Manager editor) ---- */
 .kc-edit {

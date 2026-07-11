@@ -400,7 +400,9 @@ body {
   transition: max-height .35s var(--ease), padding .35s var(--ease);
 }
 .level-card.open .level-body {
-  max-height: 4000px; padding: 4px 22px 24px;
+  /* No pixel cap: long lessons must render in full. A fixed max-height with
+     overflow:hidden silently truncated content taller than the cap. */
+  max-height: none; overflow: visible; padding: 4px 22px 24px;
   border-top: 1px solid var(--border);
 }
 .level-body h4 {
@@ -993,7 +995,8 @@ a.nav-item { color: #cdd8e6; }
   transition: max-height .3s var(--ease), padding .3s var(--ease);
 }
 .lesson-acc-item.open .lesson-acc-body {
-  max-height: 6000px; padding: 4px 14px 14px; border-top: 1px solid var(--border);
+  /* No pixel cap: a long lesson's blocks must render fully (see .level-body). */
+  max-height: none; overflow: visible; padding: 4px 14px 14px; border-top: 1px solid var(--border);
 }
 @media (prefers-reduced-motion: reduce) {
   .lesson-acc-caret, .lesson-acc-body { transition: none; }

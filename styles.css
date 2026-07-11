@@ -1699,6 +1699,10 @@ a.nav-item { color: #cdd8e6; }
 .lesson-summary-title { margin: 0 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: #12833c; }
 .lesson-divider { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
 .callout-title { margin: 0 0 6px; }
+/* Per-block wrapper: isolates each block's (possibly mis-nested) HTML at parse
+   time so it can't absorb the Knowledge Check or following blocks, while
+   staying visually transparent (renders as if its children were inline). */
+.cm-rendered .lesson-block { display: contents; }
 
 @media (max-width: 720px) {
   .blk-add-menu { grid-template-columns: 1fr; }

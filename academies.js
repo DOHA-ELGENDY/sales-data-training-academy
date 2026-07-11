@@ -601,16 +601,49 @@ function blockToHtml(b) {
     default: return "";
   }
 }
-/* Flatten blocks to one HTML string (skips Draft blocks). */
+/* Flatten blocks to one HTML string (skips Draft blocks). Used for the
+   rollback-safe contentBody mirror — NOT for employee rendering/gating. */
 function blocksToHtml(blocks) {
   return (blocks || []).filter(b => b && b.status !== "Draft").map(blockToHtml).join("");
 }
-/* Learning-Path lesson content: from blocks when present, else legacy contentBody. */
+/* True when the lesson has an authored blocks array (authoritative source). */
+function hasRealBlocks(lesson) { return !!(lesson && Array.isArray(lesson.blocks) && lesson.blocks.length); }
+
+/* Learning-Path lesson content.
+   ------------------------------------------------------------------
+   For block-based lessons `lesson.blocks` is the AUTHORITATIVE source and is
+   rendered in exact saved order. Each block is placed in its OWN wrapper so a
+   Rich Text block's internal HTML (often pasted, mis-nested markup) can never
+   absorb or reorder the Knowledge Check or the blocks after it. Knowledge Check
+   gates are built HERE, deterministically at block boundaries: a KC block is
+   rendered, then every following block goes inside a hidden `.kc-gate`; a later
+   KC opens a new nested gate. No post-hoc DOM surgery (liftKcBlocks/
+   gateLessonContent) is needed or run for these lessons.
+
+   Legacy lessons (no blocks array) fall back to contentBody, where inline
+   Knowledge Checks are still gated by the post-hoc pass. */
 function renderLessonBlocksHtml(lesson) {
-  const blocks = lessonBlocks(lesson);
-  if (!blocks.length) return renderLessonContent(lesson ? lesson.contentBody : "");
-  const html = blocksToHtml(blocks);
-  return (html && html.trim()) ? html : '<p class="muted">لا يوجد محتوى.</p>';
+  if (hasRealBlocks(lesson)) {
+    const blocks = lesson.blocks.slice()
+      .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0))
+      .filter(b => b && b.status !== "Draft");
+    if (!blocks.length) return '<p class="muted">لا يوجد محتوى.</p>';
+    let html = "", openGates = 0;
+    blocks.forEach(b => {
+      if (b.type === "knowledge") {
+        // The KC stays visible; everything after it is hidden until Continue.
+        html += blockToHtml(b);
+        html += '<div class="kc-gate" hidden style="display:none">';
+        openGates++;
+      } else {
+        // Isolate each block so mis-nested pasted HTML can't leak into siblings.
+        html += '<div class="lesson-block">' + blockToHtml(b) + '</div>';
+      }
+    });
+    html += "</div>".repeat(openGates); // close all open gates (nested for multiple KCs)
+    return html;
+  }
+  return renderLessonContent(lesson ? lesson.contentBody : "");
 }
 
 /* ---------- Team selection cards (index.html) ---------- */
@@ -689,6 +722,7 @@ function initIdentityGate() {
     if (!name) { msg.style.color = "#dc2626"; msg.textContent = "Employee Name مطلوب."; return; }
     if (!team) { msg.style.color = "#dc2626"; msg.textContent = "Team مطلوب."; return; }
     Identity.set({ employeeName: name, team: team });
+    if (typeof Track !== "undefined") Track.identified(); // analytics: first identification
     proceed();
   });
 

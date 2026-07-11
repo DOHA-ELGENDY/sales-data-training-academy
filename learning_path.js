@@ -14,6 +14,9 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!teamKey) { location.replace("index.html"); return; } // no team chosen → team selection
   const ac = academyByKey(teamKey);
 
+  // Analytics (best-effort): record the employee + academy visit.
+  if (typeof Track !== "undefined") { Track.identified(); Track.academyOpened(teamKey); }
+
   logLessonDiagnostics(teamKey); // TEMP: trace why lessons do/don't render (see console)
 
   /* ---- Rebrand the shell for this academy ---- */
@@ -64,6 +67,15 @@ document.addEventListener("DOMContentLoaded", () => {
         setLessonStatus(teamKey, id, "in-progress");
         item.classList.add("is-inprogress");
       }
+      // Analytics: lesson opened (best-effort).
+      if (id && typeof Track !== "undefined") {
+        const lsn = loadLessons().find(l => l.id === id) || {};
+        Track.lessonOpened({
+          academyKey: teamKey, moduleId: lsn.moduleId || "",
+          moduleTitle: (loadContent().find(m => m.id === lsn.moduleId) || {}).moduleTitle || "",
+          lessonId: id, lessonTitle: lsn.lessonTitle || ""
+        });
+      }
     }
   });
 
@@ -81,6 +93,13 @@ document.addEventListener("DOMContentLoaded", () => {
           if (h) h.setAttribute("aria-expanded", "false");
         });
       });
+      // Analytics: module opened (best-effort) when this card ends up open.
+      const card = head.closest(".level-card");
+      if (card && card.classList.contains("open") && typeof Track !== "undefined") {
+        const mid = card.getAttribute("data-module-id");
+        Track.moduleOpened({ academyKey: teamKey, moduleId: mid || "",
+          moduleTitle: (loadContent().find(m => m.id === mid) || {}).moduleTitle || "" });
+      }
     }, 0);
   });
 
@@ -130,7 +149,11 @@ document.addEventListener("DOMContentLoaded", () => {
 function processKnowledgeChecks(root) {
   root.querySelectorAll(".lesson-acc-body > .cm-rendered").forEach(rendered => {
     rendered.querySelectorAll(".kc-block[data-kc]").forEach(enhanceKnowledgeCheck);
-    liftKcBlocks(rendered);   // pasted content nests blocks — lift KCs to top level
+    // Block-based lessons already have their KC gates built in exact saved order
+    // by renderLessonBlocksHtml — do NOT run the legacy DOM surgery on them (it
+    // would lift nested KCs out of their gates and break ordering).
+    if (rendered.getAttribute("data-blocks")) return;
+    liftKcBlocks(rendered);   // legacy pasted content nests blocks — lift KCs to top level
     gateLessonContent(rendered);
   });
 }
@@ -256,6 +279,29 @@ function gradeObjectiveKc(block, kc) {
   fb.className = "kc-feedback " + (correct ? "kc-correct" : "kc-incorrect");
   const explain = block.querySelector(".kc-explain"); if (explain) explain.hidden = false;
   revealContinue(block);
+
+  // Persist the objective answer (best-effort) for admin analytics.
+  const chosen = kc.type === "mcq"
+    ? ((kc.choices || [])[Number(sel.value)] || String(sel.value))
+    : (String(sel.value) === "true" ? "True" : "False");
+  const answer = kc.type === "mcq"
+    ? ((kc.choices || [])[Number(kc.correct)] || String(kc.correct))
+    : (String(kc.correct) === "true" ? "True" : "False");
+  saveObjectiveKcResponse(block, kc, chosen, answer, correct);
+}
+/* Save an MCQ / True-False answer to Supabase (fire-and-forget). */
+function saveObjectiveKcResponse(block, kc, chosen, correctAnswer, isCorrect) {
+  if (!(typeof SB !== "undefined" && SB.enabled && SB.enabled() && SB.insertKcResponse)) return;
+  const ctx = kcResponseContext(block);
+  const ident = (typeof Identity !== "undefined") ? Identity.get() : null;
+  SB.insertKcResponse({
+    employeeId: ident ? ident.employeeId : "", employeeName: ident ? ident.employeeName : "",
+    team: ident ? ident.team : "", academyKey: ctx.academyKey, moduleId: ctx.moduleId, lessonId: ctx.lessonId,
+    knowledgeCheckId: kc.id || "", question: kc.question || "", responseType: kc.type,
+    textAnswer: chosen, correctAnswer: correctAnswer, isCorrect: isCorrect,
+    reviewStatus: "Auto Graded", submittedAt: new Date().toISOString()
+  }).catch(function () {});
+  if (typeof Track !== "undefined") Track.kcSubmitted({ academyKey: ctx.academyKey, moduleId: ctx.moduleId, lessonId: ctx.lessonId });
 }
 /* Lesson context for a KC (academy / module / lesson) from its accordion item. */
 function kcResponseContext(block) {
@@ -345,6 +391,7 @@ async function submitDeliverableKc(block, kc, btn) {
   fb.className = "kc-feedback kc-correct";
   const explain = block.querySelector(".kc-explain"); if (explain) explain.hidden = false;
   revealContinue(block);
+  if (typeof Track !== "undefined") Track.kcSubmitted({ academyKey: ctx.academyKey, moduleId: ctx.moduleId, lessonId: ctx.lessonId });
 }
 /* Reveal the gate that follows a KC when the employee clicks Continue Reading. */
 function revealNextGate(cont) {
@@ -403,11 +450,18 @@ function handleAssignmentSubmit(form, teamKey) {
     msg.textContent = ok ? "تم إرسال التسليم ✓" : "تم الحفظ محليًا — هيتزامن أول ما النت يرجع ✓";
     setTimeout(() => { if (msg.textContent.indexOf("✓") >= 0) msg.textContent = ""; }, 5000);
   });
+  if (typeof Track !== "undefined") Track.assignmentSubmitted({ academyKey: teamKey, moduleId: sub.moduleId, lessonId: sub.lessonId });
 }
 
 /* Record a lesson as completed and update its accordion item + progress meters. */
 function markLessonCompleted(lessonId, teamKey, btn) {
   setLessonStatus(teamKey, lessonId, "completed");
+
+  // Analytics: lesson completed (best-effort).
+  if (typeof Track !== "undefined") {
+    const lsn = loadLessons().find(l => l.id === lessonId) || {};
+    Track.lessonCompleted({ academyKey: teamKey, moduleId: lsn.moduleId || "", lessonId: lessonId });
+  }
 
   btn.disabled = true;
   btn.classList.remove("btn-primary");
@@ -608,7 +662,7 @@ function lessonAccItem(l, i, academyKey, openByDefault) {
         </span>
       </button>
       <div class="lesson-acc-body">
-        <div class="cm-rendered">${renderLessonBlocksHtml(l)}</div>
+        <div class="cm-rendered${hasRealBlocks(l) ? " cm-blocks" : ""}"${hasRealBlocks(l) ? ' data-blocks="1"' : ""}>${renderLessonBlocksHtml(l)}</div>
         ${assignmentBlock(l.assignment)}
         ${submissionForm(l)}
         ${activitiesBlock(l, academyKey)}

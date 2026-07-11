@@ -202,14 +202,15 @@ window.SB = (function () {
     });
   }
 
-  /* ---------- File uploads (Supabase Storage, public bucket) ----------
-     Images and document attachments both go to the lesson-images bucket
-     (under lessons/ and files/); lesson HTML stores only the public URL. */
-  async function uploadTo(file, folder, defExt) {
+  /* ---------- File uploads (Supabase Storage, public buckets) ----------
+     Lesson images/attachments → lesson-images; Knowledge Check file responses →
+     knowledge-check-submissions. Only the public URL is stored (never base64). */
+  var KC_BUCKET = "knowledge-check-submissions";
+  async function uploadToBucket(file, bucket, folder, defExt) {
     if (!enabled()) throw new Error("Supabase not configured");
     var ext = (((file.name || "").split(".").pop()) || defExt).toLowerCase().replace(/[^a-z0-9]/g, "") || defExt;
     var path = folder + "/" + subId() + "." + ext;
-    var res = await fetch(STORAGE + "/object/" + IMAGE_BUCKET + "/" + path, {
+    var res = await fetch(STORAGE + "/object/" + bucket + "/" + path, {
       method: "POST",
       headers: {
         "apikey": SUPABASE_ANON_KEY,
@@ -223,10 +224,43 @@ window.SB = (function () {
       var t = ""; try { t = await res.text(); } catch (e) {}
       throw new Error("Storage upload " + res.status + " " + t);
     }
-    return STORAGE + "/object/public/" + IMAGE_BUCKET + "/" + path;
+    return STORAGE + "/object/public/" + bucket + "/" + path;
   }
-  function uploadImage(file) { return uploadTo(file, "lessons", "png"); }
-  function uploadFile(file) { return uploadTo(file, "files", "bin"); }
+  function uploadImage(file) { return uploadToBucket(file, IMAGE_BUCKET, "lessons", "png"); }
+  function uploadFile(file) { return uploadToBucket(file, IMAGE_BUCKET, "files", "bin"); }
+  function uploadKcFile(file) { return uploadToBucket(file, KC_BUCKET, "responses", "bin"); }
+
+  /* ---------- Inline Knowledge Check responses ---------- */
+  function kcResponseToRow(x) {
+    return {
+      id: s(x.id) || subId(),
+      employee_id: s(x.employeeId),
+      employee_name: s(x.employeeName),
+      team: s(x.team),
+      academy_key: s(x.academyKey),
+      module_id: s(x.moduleId),
+      lesson_id: s(x.lessonId),
+      knowledge_check_id: s(x.knowledgeCheckId),
+      question: s(x.question),
+      response_type: s(x.responseType),
+      text_answer: s(x.textAnswer),
+      document_url: s(x.documentUrl),
+      file_url: s(x.fileUrl),
+      file_name: s(x.fileName),
+      review_status: s(x.reviewStatus) || "Pending Review",
+      submitted_at: x.submittedAt || new Date().toISOString()
+    };
+  }
+  async function insertKcResponse(resp) {
+    await req("/knowledge_check_responses", {
+      method: "POST", headers: headers(MINIMAL), body: JSON.stringify(kcResponseToRow(resp))
+    });
+    return true;
+  }
+  async function fetchKcResponses() {
+    var res = await req("/knowledge_check_responses?select=*&order=submitted_at.desc", { headers: headers() });
+    return await res.json();
+  }
 
   /* ---------- Connection test ---------- */
   async function ping() {
@@ -245,7 +279,8 @@ window.SB = (function () {
     bulkUpsert: bulkUpsert,
     insertSubmission: insertSubmission, upsertSubmission: upsertSubmission,
     fetchSubmissions: fetchSubmissions, updateSubmission: updateSubmission,
-    uploadImage: uploadImage, uploadFile: uploadFile,
+    uploadImage: uploadImage, uploadFile: uploadFile, uploadKcFile: uploadKcFile,
+    insertKcResponse: insertKcResponse, fetchKcResponses: fetchKcResponses,
     moduleFromRow: moduleFromRow, lessonFromRow: lessonFromRow
   };
 })();

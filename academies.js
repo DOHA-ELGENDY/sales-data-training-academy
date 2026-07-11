@@ -480,6 +480,8 @@ function renderTeamCards() {
 function injectSwitchTeam() {
   const foot = document.querySelector(".sidebar-foot");
   if (!foot || foot.querySelector(".switch-team")) return;
+  // Regular employees are locked to their own academy — no team switcher.
+  if (typeof Identity !== "undefined" && Identity.isIdentified() && !Identity.isAdmin()) return;
   const key = getSelectedAcademy();
   const ac = key ? academyByKey(key) : null;
   const wrap = document.createElement("div");
@@ -516,8 +518,16 @@ function initIdentityGate() {
     if (tm) tm.value = "";
     if (m) m.textContent = "";
   }
+  // Admins pick from the three academies; a regular employee goes straight to
+  // their own team's Learning Path (they never see the team-selection cards).
+  function proceed() {
+    if (Identity.isAdmin()) { showTeams(); return; }
+    const key = Identity.academyKey ? Identity.academyKey() : null;
+    if (key) location.replace("learning_path.html?team=" + encodeURIComponent(key));
+    else showTeams();
+  }
 
-  if (Identity.isIdentified()) showTeams(); else showIdentify();
+  if (Identity.isIdentified()) proceed(); else showIdentify();
 
   const form = document.getElementById("identifyForm");
   if (form) form.addEventListener("submit", e => {
@@ -528,7 +538,7 @@ function initIdentityGate() {
     if (!name) { msg.style.color = "#dc2626"; msg.textContent = "Employee Name مطلوب."; return; }
     if (!team) { msg.style.color = "#dc2626"; msg.textContent = "Team مطلوب."; return; }
     Identity.set({ employeeName: name, team: team });
-    showTeams();
+    proceed();
   });
 
   // If the chosen name matches a configured employee, prefill their team.

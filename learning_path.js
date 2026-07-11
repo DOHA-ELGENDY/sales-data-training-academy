@@ -179,17 +179,39 @@ function gateLessonContent(rendered) {
     }
   });
 }
+/* Objective types are auto-graded (Correct/Incorrect). All other types are
+   deliverables: reviewed by a manager, not auto-graded. */
+var KC_OBJECTIVE = ["mcq", "truefalse"];
+function kcIsObjective(kc) { return KC_OBJECTIVE.indexOf(kc && kc.type) >= 0; }
+function kcWants(type) {
+  return {
+    text: type === "short" || type === "text_or_doc" || type === "text_or_file",
+    doc: type === "doclink" || type === "text_or_doc",
+    file: type === "fileupload" || type === "text_or_file",
+    combined: type === "text_or_doc" || type === "text_or_file"
+  };
+}
+
 function kcWidgetHtml(kc) {
   const name = "kc-" + Math.random().toString(36).slice(2, 9);
-  let body = "";
-  if (kc.type === "mcq") {
+  const type = kc.type || "mcq";
+  let body = "", btnLabel = "Submit Response";
+  if (type === "mcq") {
+    btnLabel = "Check Answer";
     body = (kc.choices || []).map((c, i) =>
       `<label class="kc-opt"><input type="radio" name="${name}" value="${i}"><span>${escHtml(c)}</span></label>`).join("");
-  } else if (kc.type === "truefalse") {
+  } else if (type === "truefalse") {
+    btnLabel = "Check Answer";
     body = ["true", "false"].map(v =>
       `<label class="kc-opt"><input type="radio" name="${name}" value="${v}"><span>${v === "true" ? "True" : "False"}</span></label>`).join("");
   } else {
-    body = `<input type="text" class="kc-short-input" placeholder="إجابتك…">`;
+    const w = kcWants(type);
+    const parts = [];
+    if (w.text) parts.push(`<textarea class="kc-text-input" rows="3" placeholder="اكتب إجابتك…"></textarea>`);
+    if (w.combined) parts.push(`<div class="kc-or">— أو —</div>`);
+    if (w.doc) parts.push(`<input type="url" class="kc-url-input" placeholder="https://docs.google.com/…">`);
+    if (w.file) parts.push(`<input type="file" class="kc-file-input" accept=".pdf,.docx,.pptx,.xlsx">`);
+    body = `<div class="kc-deliver">${parts.join("")}</div>`;
   }
   return `
     <div class="kc-head"><span class="kc-badge">Knowledge Check</span></div>
@@ -197,44 +219,132 @@ function kcWidgetHtml(kc) {
     <div class="kc-opts">${body}</div>
     ${kc.explanation ? `<div class="kc-explain" hidden><strong>💡</strong> ${escHtml(kc.explanation)}</div>` : ""}
     <div class="kc-actions">
-      <button type="button" class="btn btn-primary kc-check">Check Answer</button>
+      <button type="button" class="btn btn-primary kc-check">${btnLabel}</button>
       <button type="button" class="btn kc-continue" hidden>Continue to the next part →</button>
       <span class="kc-feedback" aria-live="polite"></span>
     </div>`;
 }
-/* Grade the answer and, on any non-empty submission, reveal the Continue button
-   (correct or incorrect — participation, not blocking). Incorrect allows retry. */
+/* Route a KC submission: objective types are graded; deliverable types are
+   validated, saved to Supabase, and marked "submitted for review". */
 function checkKnowledgeAnswer(btn) {
   const block = btn.closest(".kc-block");
   if (!block) return;
   let kc;
   try { kc = JSON.parse(block.getAttribute("data-kc")); } catch (e) { return; }
+  if (kcIsObjective(kc)) gradeObjectiveKc(block, kc);
+  else submitDeliverableKc(block, kc, btn);
+}
+/* Reveal the Continue button once a KC is answered (only if there is gated
+   content after it). */
+function revealContinue(block) {
+  const gate = block.nextElementSibling;
+  const cont = block.querySelector(".kc-continue");
+  if (cont && gate && gate.classList.contains("kc-gate") && gate.children.length) cont.hidden = false;
+}
+/* MCQ / True-False: immediate Correct/Incorrect. Any submitted answer reveals
+   Continue (participation, not blocking). Incorrect allows retry. */
+function gradeObjectiveKc(block, kc) {
   const fb = block.querySelector(".kc-feedback");
-  let answered = true, correct = false;
-
-  if (kc.type === "short") {
-    const inp = block.querySelector(".kc-short-input");
-    const val = inp ? inp.value.trim().toLowerCase() : "";
-    if (!val) answered = false;
-    else correct = val === String(kc.correct == null ? "" : kc.correct).trim().toLowerCase();
-  } else {
-    const sel = block.querySelector('input[type="radio"]:checked');
-    if (!sel) answered = false;
-    else correct = kc.type === "mcq" ? (Number(sel.value) === Number(kc.correct)) : (String(sel.value) === String(kc.correct));
-  }
-
-  if (!answered) { fb.textContent = "اختَر إجابة الأول."; fb.className = "kc-feedback kc-warn"; return; }
-
-  // Show feedback + explanation + reveal Continue on ANY submitted answer.
+  const sel = block.querySelector('input[type="radio"]:checked');
+  if (!sel) { fb.textContent = "اختَر إجابة الأول."; fb.className = "kc-feedback kc-warn"; return; }
+  const correct = kc.type === "mcq"
+    ? (Number(sel.value) === Number(kc.correct))
+    : (String(sel.value) === String(kc.correct));
   block.classList.remove("is-correct", "is-incorrect");
   block.classList.add("is-answered", correct ? "is-correct" : "is-incorrect");
   fb.textContent = correct ? "✓ Correct" : "✗ Incorrect — you can try again or continue";
   fb.className = "kc-feedback " + (correct ? "kc-correct" : "kc-incorrect");
   const explain = block.querySelector(".kc-explain"); if (explain) explain.hidden = false;
+  revealContinue(block);
+}
+/* Lesson context for a KC (academy / module / lesson) from its accordion item. */
+function kcResponseContext(block) {
+  const item = block.closest(".lesson-acc-item");
+  const lessonId = item ? (item.getAttribute("data-lesson-id") || "") : "";
+  const lesson = (typeof loadLessons === "function" ? loadLessons() : []).find(l => l.id === lessonId) || {};
+  const teamKey = (typeof getSelectedAcademy === "function") ? getSelectedAcademy() : "";
+  return { lessonId: lessonId, moduleId: lesson.moduleId || "", academyKey: lesson.academyKey || teamKey || "" };
+}
+/* Short text / document link / file upload / combined: validate, upload any
+   file to Supabase Storage, save the response, then reveal Continue. Not graded
+   — the manager reviews it later. Content stays gated until the save succeeds. */
+async function submitDeliverableKc(block, kc, btn) {
+  const fb = block.querySelector(".kc-feedback");
+  const setErr = t => { fb.textContent = t; fb.className = "kc-feedback kc-warn"; };
+  const type = kc.type, w = kcWants(type);
+  const textEl = block.querySelector(".kc-text-input");
+  const urlEl = block.querySelector(".kc-url-input");
+  const fileEl = block.querySelector(".kc-file-input");
+  const text = textEl ? textEl.value.trim() : "";
+  const url = urlEl ? urlEl.value.trim() : "";
+  const file = (fileEl && fileEl.files) ? fileEl.files[0] : null;
+  const hasText = !!text, hasUrl = !!url, hasFile = !!file;
 
-  const gate = block.nextElementSibling;
-  const cont = block.querySelector(".kc-continue");
-  if (cont && gate && gate.classList.contains("kc-gate") && gate.children.length) cont.hidden = false;
+  // Presence: single types need their own input; combined types need ≥1 (not both).
+  if (type === "short" && !hasText) return setErr("اكتب إجابتك أولاً.");
+  if (type === "doclink" && !hasUrl) return setErr("أضف رابط المستند.");
+  if (type === "fileupload" && !hasFile) return setErr("أرفق ملفًا.");
+  if (type === "text_or_doc" && !hasText && !hasUrl) return setErr("اكتب إجابة أو أضف رابط مستند.");
+  if (type === "text_or_file" && !hasText && !hasFile) return setErr("اكتب إجابة أو أرفق ملفًا.");
+  // Format checks.
+  if (hasUrl && !/^https?:\/\/\S+/i.test(url)) return setErr("الرابط لازم يبدأ بـ http أو https.");
+  if (hasFile) {
+    const ext = (file.name.split(".").pop() || "").toLowerCase();
+    if (["pdf", "docx", "pptx", "xlsx"].indexOf(ext) < 0) return setErr("الملف لازم يكون PDF أو DOCX أو PPTX أو XLSX.");
+    if (file.size > 10 * 1024 * 1024) return setErr("أقصى حجم للملف 10 ميجابايت.");
+  }
+
+  const ctx = kcResponseContext(block);
+  const ident = (typeof Identity !== "undefined") ? Identity.get() : null;
+
+  btn.disabled = true;
+  fb.textContent = hasFile ? "Uploading…" : "Submitting…"; fb.className = "kc-feedback";
+
+  // Upload the file first (a failed upload is a hard error — nothing is saved).
+  let fileUrl = "", fileName = "";
+  if (hasFile) {
+    try {
+      if (!(typeof SB !== "undefined" && SB.enabled && SB.enabled() && SB.uploadKcFile)) throw new Error("no-storage");
+      fileUrl = await SB.uploadKcFile(file);
+      fileName = file.name;
+    } catch (e) { btn.disabled = false; return setErr("تعذّر رفع الملف — حاول مرة أخرى."); }
+  }
+
+  const resp = {
+    id: (typeof SB !== "undefined" && SB.subId) ? SB.subId() : ("kcr" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)),
+    employeeId: ident ? ident.employeeId : "",
+    employeeName: ident ? ident.employeeName : "",
+    team: ident ? ident.team : "",
+    academyKey: ctx.academyKey,
+    moduleId: ctx.moduleId,
+    lessonId: ctx.lessonId,
+    knowledgeCheckId: kc.id || "",
+    question: kc.question || "",
+    responseType: type,
+    textAnswer: text,
+    documentUrl: url,
+    fileUrl: fileUrl,
+    fileName: fileName,
+    reviewStatus: "Pending Review",
+    submittedAt: new Date().toISOString()
+  };
+
+  let saved = false;
+  try {
+    if (typeof SB !== "undefined" && SB.enabled && SB.enabled() && SB.insertKcResponse) {
+      await SB.insertKcResponse(resp); saved = true;
+    }
+  } catch (e) { saved = false; }
+  if (!saved) { btn.disabled = false; return setErr("تعذّر حفظ الإجابة — حاول مرة أخرى."); }
+
+  // Submitted for review — lock inputs, show status, reveal Continue.
+  block.classList.add("is-answered", "is-submitted");
+  [textEl, urlEl, fileEl].forEach(el => { if (el) el.disabled = true; });
+  btn.hidden = true;
+  fb.textContent = "✓ Response submitted for review.";
+  fb.className = "kc-feedback kc-correct";
+  const explain = block.querySelector(".kc-explain"); if (explain) explain.hidden = false;
+  revealContinue(block);
 }
 /* Reveal the gate that follows a KC when the employee clicks Continue Reading. */
 function revealNextGate(cont) {

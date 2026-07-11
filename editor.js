@@ -279,7 +279,27 @@ function createRichEditor(mount, opts) {
      controls). The current field values are mirrored into a data-kc attribute
      on every change; getHTML() converts the editable card to a clean stored
      block, and setHTML() converts stored blocks back to editable cards. */
-  function kcDefault() { return { type: "mcq", question: "", choices: ["", ""], correct: 0, explanation: "" }; }
+  var KC_TYPES = [
+    ["mcq", "Multiple Choice"],
+    ["truefalse", "True / False"],
+    ["short", "Short Text Answer"],
+    ["doclink", "Document Link"],
+    ["fileupload", "File Upload"],
+    ["text_or_doc", "Text or Document Link"],
+    ["text_or_file", "Text or File Upload"]
+  ];
+  function kcId() { return "kc_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
+  function kcDefault() { return { id: kcId(), type: "mcq", question: "", choices: ["", ""], correct: 0, explanation: "" }; }
+  function kcTypeNote(type) {
+    var m = {
+      short: "Employee submits a short text answer (reviewed, not auto-graded).",
+      doclink: "Employee submits a document link (Google Docs / Drive / OneDrive …).",
+      fileupload: "Employee uploads a file (PDF / DOCX / PPTX / XLSX).",
+      text_or_doc: "Employee submits a text answer OR a document link.",
+      text_or_file: "Employee submits a text answer OR an uploaded file."
+    };
+    return m[type] || "";
+  }
 
   function kcChoiceRow(text, correct) {
     return `<div class="kc-f-choice">` +
@@ -287,31 +307,33 @@ function createRichEditor(mount, opts) {
       `<input type="text" class="kc-f-ctext" placeholder="Choice" value="${esc(text)}">` +
       `<button type="button" class="kc-f-cdel" title="Remove">✕</button></div>`;
   }
+  /* Correct-answer UI only for objective types (MCQ, True/False). Deliverable
+     types (short text / document link / file upload / combined) are reviewed, not
+     auto-graded, so they show only a hint. */
   function kcBodyHtml(kc) {
+    if (kc.type === "mcq") {
+      const choices = (kc.choices && kc.choices.length) ? kc.choices : ["", ""];
+      const ci = Number(kc.correct);
+      return choices.map((c, i) => kcChoiceRow(c, i === ci)).join("") +
+        `<button type="button" class="kc-f-addchoice">+ Add choice</button>`;
+    }
     if (kc.type === "truefalse") {
       const isFalse = String(kc.correct) === "false";
       return `<label class="kc-f-lbl">Correct answer <select class="kc-f-correct">` +
         `<option value="true"${isFalse ? "" : " selected"}>True</option>` +
         `<option value="false"${isFalse ? " selected" : ""}>False</option></select></label>`;
     }
-    if (kc.type === "short") {
-      return `<label class="kc-f-lbl">Correct answer <input type="text" class="kc-f-correct" value="${esc(kc.correct || "")}"></label>`;
-    }
-    const choices = (kc.choices && kc.choices.length) ? kc.choices : ["", ""];
-    const ci = Number(kc.correct);
-    return choices.map((c, i) => kcChoiceRow(c, i === ci)).join("") +
-      `<button type="button" class="kc-f-addchoice">+ Add choice</button>`;
+    return `<p class="kc-f-note">${kcTypeNote(kc.type)}</p>`;
   }
   function kcEditHtml(kc) {
     kc = kc || kcDefault();
+    if (!kc.id) kc.id = kcId();
+    const opts = KC_TYPES.map(t => `<option value="${t[0]}"${kc.type === t[0] ? " selected" : ""}>${t[1]}</option>`).join("");
     return `<div class="kc-edit" contenteditable="false" data-kc="${esc(JSON.stringify(kc))}">` +
       `<div class="kc-edit-top"><span class="kc-edit-badge">Knowledge Check</span>` +
-      `<select class="kc-f-type">` +
-        `<option value="mcq"${kc.type === "mcq" ? " selected" : ""}>Multiple Choice</option>` +
-        `<option value="truefalse"${kc.type === "truefalse" ? " selected" : ""}>True / False</option>` +
-        `<option value="short"${kc.type === "short" ? " selected" : ""}>Short Answer</option>` +
-      `</select><button type="button" class="kc-f-remove" title="Remove">✕</button></div>` +
-      `<input type="text" class="kc-f-question" placeholder="Question" value="${esc(kc.question || "")}">` +
+      `<select class="kc-f-type">${opts}</select>` +
+      `<button type="button" class="kc-f-remove" title="Remove">✕</button></div>` +
+      `<input type="text" class="kc-f-question" placeholder="Question / task instructions" value="${esc(kc.question || "")}">` +
       `<div class="kc-f-body">${kcBodyHtml(kc)}</div>` +
       `<input type="text" class="kc-f-explanation" placeholder="Explanation (optional)" value="${esc(kc.explanation || "")}">` +
       `</div>`;
@@ -320,8 +342,11 @@ function createRichEditor(mount, opts) {
 
   /* Mirror an editable card's current field values into its data-kc attribute. */
   function syncKcBlock(block) {
+    let prev = {};
+    try { prev = JSON.parse(block.getAttribute("data-kc")) || {}; } catch (e) {}
     const type = block.querySelector(".kc-f-type").value;
     const kc = {
+      id: prev.id || kcId(),
       type: type,
       question: block.querySelector(".kc-f-question").value,
       explanation: block.querySelector(".kc-f-explanation").value
@@ -331,7 +356,7 @@ function createRichEditor(mount, opts) {
       kc.choices = rows.map(r => r.querySelector(".kc-f-ctext").value);
       let ci = rows.findIndex(r => r.querySelector(".kc-f-cradio").checked);
       kc.correct = ci < 0 ? 0 : ci;
-    } else {
+    } else if (type === "truefalse") {
       kc.correct = block.querySelector(".kc-f-correct").value;
     }
     block.setAttribute("data-kc", JSON.stringify(kc));

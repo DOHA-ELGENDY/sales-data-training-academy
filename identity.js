@@ -37,6 +37,10 @@ window.Identity = (function () {
   var ADMIN_PAGES = ["content_manager.html", "dashboard.html"];
   var FALLBACK_PAGE = "learning_path.html";
 
+  // Team → academy key. A regular employee is locked to their own team's academy.
+  var TEAM_ACADEMY = { "Sales": "sales", "Sales Data": "sales-data", "Sales Accounting": "sales-accounting" };
+  var SELECTED_ACADEMY_KEY = "sdta_selected_academy"; // must match academies.js
+
   function uid() { return "emp_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
   function load() {
     try { var raw = localStorage.getItem(KEY); if (raw) return JSON.parse(raw); } catch (e) {}
@@ -89,6 +93,28 @@ window.Identity = (function () {
     return out;
   }
 
+  /* ---------- Team → academy access ---------- */
+  function teamAcademyKey() { var r = load(); return r ? (TEAM_ACADEMY[r.team] || null) : null; }
+  function academyKey() { return teamAcademyKey(); }
+
+  /* Lock a regular employee to their own team's academy. Returns true if allowed
+     to stay; redirects (and returns false) if they requested a different academy
+     via ?team= or a stale stored selection. Admins may view any academy. */
+  function enforceAcademy() {
+    if (isAdmin()) return true;
+    var mine = teamAcademyKey();
+    if (!mine) return true; // no mapped team → leave to the page's normal flow
+    var requested = null;
+    try { requested = new URLSearchParams(location.search).get("team"); } catch (e) {}
+    if (!requested) { try { requested = localStorage.getItem(SELECTED_ACADEMY_KEY); } catch (e) {} }
+    if (requested && requested !== mine) {
+      try { location.replace("learning_path.html?team=" + encodeURIComponent(mine)); } catch (e) {}
+      return false;
+    }
+    try { localStorage.setItem(SELECTED_ACADEMY_KEY, mine); } catch (e) {}
+    return true;
+  }
+
   /* ---------- Role-based navigation / access ---------- */
   function currentPage() {
     var p = "";
@@ -120,12 +146,24 @@ window.Identity = (function () {
     set: set, clear: clear, stamp: stamp,
     isAdmin: isAdmin, role: role, requireAdmin: requireAdmin,
     isAdminPage: isAdminPage, applyNav: applyNav,
+    academyKey: academyKey, teamAcademyKey: teamAcademyKey, enforceAcademy: enforceAcademy,
     teams: TEAMS, employees: EMPLOYEES, ADMIN_PAGES: ADMIN_PAGES
   };
 
   // Guard direct access as early as possible (identity.js loads in <head>):
-  // a non-admin on an admin-only page is redirected to the Learning Path.
-  if (isAdminPage() && !isAdmin()) { try { location.replace(FALLBACK_PAGE); } catch (e) {} }
+  (function () {
+    var page = currentPage();
+    if (isAdminPage(page) && !isAdmin()) {                       // admin page, not admin
+      try { location.replace(FALLBACK_PAGE); } catch (e) {}
+    } else if (page === "learning_path.html") {                  // lock employee to own academy
+      enforceAcademy();
+    } else if (page === "index.html") {                          // employee skips team selection
+      if (isIdentified() && !isAdmin()) {
+        var mine = teamAcademyKey();
+        if (mine) { try { location.replace("learning_path.html?team=" + encodeURIComponent(mine)); } catch (e) {} }
+      }
+    }
+  })();
 
   return api;
 })();

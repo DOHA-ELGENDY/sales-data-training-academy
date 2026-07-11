@@ -813,6 +813,27 @@ function renderStructureTree() {
     <ul class="cm-tree-modules">
       ${modules.length ? modulesHtml : `<li class="cm-tree-empty">لا يوجد Modules — أضفها من تاب Modules</li>`}
     </ul>`;
+
+  updateBreadcrumb();
+}
+
+/* Update the editor breadcrumb to the module/lesson currently open (display only). */
+function updateBreadcrumb() {
+  const bc = $("cmBreadcrumb");
+  if (!bc) return;
+  const id = $("lId") ? $("lId").value : "";
+  const lesson = id ? LESSON_ITEMS.find(l => l.id === id) : null;
+  if (!lesson) {
+    bc.innerHTML = `<span class="cm-bc-item cm-bc-muted">Select a lesson from the structure panel</span>`;
+    return;
+  }
+  const mod = CM_ITEMS.find(m => m.id === lesson.moduleId);
+  const modLabel = mod ? `M${escHtml(mod.moduleNumber)} — ${escHtml(mod.moduleTitle) || "بدون عنوان"}` : "—";
+  const lesLabel = `L${escHtml(lesson.lessonNumber) || ""} — ${escHtml(lesson.lessonTitle) || "بدون عنوان"}`;
+  bc.innerHTML =
+    `<span class="cm-bc-item">${modLabel}</span>` +
+    `<span class="cm-bc-sep" aria-hidden="true">›</span>` +
+    `<span class="cm-bc-item cm-bc-current">${lesLabel}</span>`;
 }
 
 function handleTreeClick(e) {

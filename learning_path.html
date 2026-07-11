@@ -77,6 +77,19 @@
         <p class="muted">ابدأ بـ Module 0. اضغط على أي Module علشان يفتح، وباقي الـ Modules هتفتح تباعًا.</p>
       </div>
 
+      <!-- Learning Path search (this academy only) -->
+      <div class="cm-search lp-search reveal" id="lpSearch">
+        <div class="cm-search-box">
+          <span class="cm-search-ico" aria-hidden="true">🔎</span>
+          <input type="search" id="lpSearchInput" class="cm-search-input"
+                 placeholder="Search lessons and topics..."
+                 autocomplete="off" aria-label="Search lessons and topics" role="searchbox" />
+          <button type="button" class="cm-search-clear" id="lpSearchClear" aria-label="Clear search" hidden>✕</button>
+        </div>
+        <div class="cm-search-results" id="lpSearchResults" role="listbox" aria-label="Search results" hidden></div>
+      </div>
+      <div class="lp-search-toast" id="lpSearchToast" role="status" aria-live="polite" hidden></div>
+
       <!-- Academy progress summary (employee) — filled by learning_path.js -->
       <div class="academy-progress reveal" id="academyProgress" hidden></div>
 
@@ -237,5 +250,6 @@
   <script src="academies.js"></script>
   <script src="script.js"></script>
   <script src="learning_path.js"></script>
+  <script src="learning_path_search.js"></script>
 </body>
 </html>

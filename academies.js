@@ -686,9 +686,12 @@ function buildSegmentedLesson(host, blocks, revealedSet) {
     if (!visible) { wrap.hidden = true; wrap.style.display = "none"; }
 
     // Content blocks — each isolated so mis-nested pasted HTML can't leak out.
+    // data-block-id lets the Learning Path search scroll to an exact block
+    // (display only — it does not affect gating).
     seg.content.forEach(b => {
       const bw = document.createElement("div");
       bw.className = "lesson-block";
+      if (b.id) bw.setAttribute("data-block-id", b.id);
       bw.innerHTML = blockToHtml(b);
       wrap.appendChild(bw);
     });
@@ -699,6 +702,7 @@ function buildSegmentedLesson(host, blocks, revealedSet) {
       const kcEl = document.createElement("div");
       kcEl.className = "kc-block";
       kcEl.setAttribute("data-kc", JSON.stringify(seg.kc.data || {}));
+      if (seg.kc.id) kcEl.setAttribute("data-block-id", seg.kc.id);
       wrap.appendChild(kcEl);
     }
     host.appendChild(wrap);

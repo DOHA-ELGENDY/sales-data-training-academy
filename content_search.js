@@ -280,6 +280,11 @@
     if (!lesson) return;
     if (typeof switchTab === "function") switchTab("lessons");
     if (typeof fillLessonForm === "function") fillLessonForm(lesson); // opens editor + highlights the tree
+    // Ensure the parent module is expanded in the structure tree.
+    if (typeof CM_TREE_COLLAPSED !== "undefined" && CM_TREE_COLLAPSED.delete) {
+      CM_TREE_COLLAPSED.delete(rec.moduleId);
+      if (typeof renderStructureTree === "function") renderStructureTree();
+    }
     setTimeout(function () {
       if (rec.kind === "block" && rec.blockId) {
         var card = document.querySelector('#lBlocks .blk-card[data-block-id="' + cssEsc(rec.blockId) + '"]');

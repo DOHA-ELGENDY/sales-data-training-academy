@@ -170,6 +170,9 @@ window.LessonBlocks = (function () {
       var m = card.querySelector('[data-role="rte"]');
       var ed = createRichEditor(m, {
         placeholder: b.type === "summary" ? "اكتب ملخص الدرس…" : "اكتب محتوى الدرس هنا…",
+        // Knowledge Check is authored as its own block now — drop the old inline
+        // "Insert Knowledge Check" toolbar button (legacy rendering is unaffected).
+        exclude: ["knowledge"],
         onChange: function (html) { b.data.html = html; touch(b); }
       });
       ed.setHTML(d.html || "");
@@ -186,7 +189,7 @@ window.LessonBlocks = (function () {
       var titleEl = card.querySelector('[data-role="callout-title"]');
       titleEl.addEventListener("input", function () { b.data.title = titleEl.value; touch(b); });
       var mb = card.querySelector('[data-role="callout-body"]');
-      var ced = createRichEditor(mb, { placeholder: "نص التنبيه…", onChange: function (html) { b.data.body = html; touch(b); } });
+      var ced = createRichEditor(mb, { placeholder: "نص التنبيه…", exclude: ["knowledge"], onChange: function (html) { b.data.body = html; touch(b); } });
       ced.setHTML(d.body || "");
       editors.set(b.id, { kind: "callout", ed: ced });
     } else if (b.type === "image") {

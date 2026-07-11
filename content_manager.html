@@ -79,7 +79,7 @@
 
       <div class="page-head reveal">
         <h1>Content Manager</h1>
-        <p class="muted">أنشئ وعدّل محتوى الأكاديميات من هنا. (نسخة أولية بدون Database)</p>
+        <p class="muted">أنشئ وعدّل محتوى الأكاديميات من هنا.</p>
       </div>
 
       <!-- Content search (admin only) — searches the selected Academy's content -->
@@ -187,6 +187,11 @@
         <aside class="cm-structure" id="cmStructure" aria-label="Content structure"></aside>
 
         <div class="cm-editor-col">
+
+        <!-- Breadcrumb: reflects the module/lesson currently open in the editor -->
+        <nav class="cm-breadcrumb" id="cmBreadcrumb" aria-label="Editing location">
+          <span class="cm-bc-item cm-bc-muted">Select a lesson from the structure panel</span>
+        </nav>
 
         <form id="lessonForm" class="card">
           <h3 class="cm-group-title">Add / Edit Lesson Content</h3>
@@ -324,18 +329,6 @@
                   <span class="form-msg" id="actMsg" role="status" aria-live="polite"></span>
                 </div>
               </div>
-            </div>
-
-            <!-- Attachments (stored locally as data URLs for now; Google Drive later) -->
-            <div class="field field-full">
-              <label>Attachments</label>
-              <div class="cm-attach">
-                <button type="button" class="btn btn-ghost" id="lAttachBtn">⬆ Upload File</button>
-                <input type="file" id="lAttachInput" multiple hidden
-                  accept=".pdf,.docx,.pptx,.jpg,.jpeg,.png,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/jpeg,image/png" />
-                <span class="cm-hint">PDF · DOCX · PPTX · JPG · PNG</span>
-              </div>
-              <ul class="attach-list" id="lAttachList"></ul>
             </div>
 
             <div class="field">

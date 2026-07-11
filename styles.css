@@ -1368,6 +1368,14 @@ a.nav-item { color: #cdd8e6; }
 /* Block-lesson gated segments (render-time gating from lesson.blocks) */
 .kc-segment[hidden] { display: none !important; }
 .kc-segment { animation: lessonIn .25s var(--ease) both; }
+/* Admin-only "Preview Full Lesson" control (hidden from employees by markup) */
+.kc-admin-preview { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 0 0 14px; padding: 8px 12px; border: 1px dashed var(--border);
+  border-radius: 8px; background: #fbfaf5; }
+.kc-preview-all { background: #6d28d9; color: #fff; }
+.kc-preview-all:hover { background: #5b21b6; }
+.kc-preview-all.is-done, .kc-preview-all:disabled { background: #9ca3af; cursor: default; }
+.kc-admin-note { font-size: 12px; color: var(--muted); }
 
 /* ---- Knowledge Check editable card (Content Manager editor) ---- */
 .kc-edit {

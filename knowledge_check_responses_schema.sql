@@ -24,6 +24,18 @@ create table if not exists public.knowledge_check_responses (
   review_status      text default 'Pending Review'
 );
 
+-- ---------- Grading / review columns (added after the original schema) ----------
+-- The app sends these on every KC response; a DB created before this block will
+-- reject inserts with PGRST204 "Could not find the 'correct_answer' column",
+-- which (for a deliverable Knowledge Check) blocks the employee from reaching the
+-- content gated behind it. Run this once to restore full analytics. Safe to re-run.
+-- (The app also degrades gracefully if these are absent, but analytics need them.)
+alter table public.knowledge_check_responses add column if not exists is_correct     boolean;
+alter table public.knowledge_check_responses add column if not exists correct_answer text;
+alter table public.knowledge_check_responses add column if not exists score          text;
+alter table public.knowledge_check_responses add column if not exists feedback       text;
+alter table public.knowledge_check_responses add column if not exists reviewed_at    timestamptz;
+
 create index if not exists kcr_team_idx    on public.knowledge_check_responses (team);
 create index if not exists kcr_lesson_idx  on public.knowledge_check_responses (lesson_id);
 create index if not exists kcr_status_idx   on public.knowledge_check_responses (review_status);

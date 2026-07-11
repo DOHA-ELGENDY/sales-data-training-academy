@@ -140,7 +140,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const check = e.target.closest(".kc-check");
     if (check && container.contains(check)) { checkKnowledgeAnswer(check); return; }
     const cont = e.target.closest(".kc-continue");
-    if (cont && container.contains(cont)) revealNextGate(cont);
+    if (cont && container.contains(cont)) { revealNextGate(cont); return; }
+    const prev = e.target.closest(".kc-preview-all");
+    if (prev && container.contains(prev)) revealAllSegments(prev);
   });
 });
 
@@ -204,6 +206,16 @@ function loadRevealedSet(ctx) {
     const raw = localStorage.getItem(revealStorageKey(ctx));
     return new Set(raw ? JSON.parse(raw) : []);
   } catch (e) { return new Set(); }
+}
+/* Keep a failed Knowledge Check submission locally so it is never lost when the
+   backend save fails (e.g. a stale table schema). Best-effort; capped. */
+function stashPendingKcResponse(resp) {
+  try {
+    const raw = localStorage.getItem("sdta_kc_pending");
+    const arr = raw ? JSON.parse(raw) : [];
+    arr.push(resp);
+    localStorage.setItem("sdta_kc_pending", JSON.stringify(arr.slice(-100)));
+  } catch (e) { /* storage full / unavailable — non-fatal */ }
 }
 function persistRevealed(block) {
   let kc; try { kc = JSON.parse(block.getAttribute("data-kc")); } catch (e) { return; }
@@ -437,23 +449,47 @@ async function submitDeliverableKc(block, kc, btn) {
     submittedAt: new Date().toISOString()
   };
 
+  // Persist the response (best-effort). A VALID answer must always unlock the
+  // next segment: a backend write failure must never trap the lesson content
+  // behind this Knowledge Check. The file (if any) is already uploaded above; a
+  // failed row save is stashed locally for retry instead of blocking the reader.
   let saved = false;
   try {
     if (typeof SB !== "undefined" && SB.enabled && SB.enabled() && SB.insertKcResponse) {
       await SB.insertKcResponse(resp); saved = true;
     }
   } catch (e) { saved = false; }
-  if (!saved) { btn.disabled = false; return setErr("تعذّر حفظ الإجابة — حاول مرة أخرى."); }
+  if (!saved) stashPendingKcResponse(resp);
 
-  // Submitted for review — lock inputs, show status, reveal Continue.
+  // Submitted — lock inputs, show status, reveal Continue (unblock either way).
   block.classList.add("is-answered", "is-submitted");
   [textEl, urlEl, fileEl].forEach(el => { if (el) el.disabled = true; });
   btn.hidden = true;
-  fb.textContent = "✓ Response submitted for review.";
+  fb.textContent = saved ? "✓ Response submitted for review." : "✓ تم استلام إجابتك — الحفظ هيتم لاحقًا.";
   fb.className = "kc-feedback kc-correct";
   const explain = block.querySelector(".kc-explain"); if (explain) explain.hidden = false;
   revealContinue(block);
   if (typeof Track !== "undefined") Track.kcSubmitted({ academyKey: ctx.academyKey, moduleId: ctx.moduleId, lessonId: ctx.lessonId });
+}
+/* TEMP admin tool — "Preview Full Lesson". Shown ONLY to admins (never to
+   employees); lets a manager verify that every saved block exists by revealing
+   all segments at once, ungated. Does not touch the employee gating flow. */
+function adminPreviewButton(l) {
+  const isAdmin = (typeof Identity !== "undefined" && Identity.isAdmin && Identity.isAdmin());
+  if (!isAdmin || !hasRealBlocks(l)) return "";
+  return `<div class="kc-admin-preview">
+      <button type="button" class="btn kc-preview-all">👁 Preview Full Lesson</button>
+      <span class="kc-admin-note">Admin only — shows every block ungated to verify content.</span>
+    </div>`;
+}
+/* Reveal every gated segment in this lesson (admin preview). */
+function revealAllSegments(btn) {
+  const item = btn.closest(".lesson-acc-item");
+  if (!item) return;
+  item.querySelectorAll(".kc-segment").forEach(seg => { seg.hidden = false; seg.style.display = ""; });
+  item.querySelectorAll(".kc-gate").forEach(g => { g.hidden = false; g.style.display = ""; }); // legacy lessons too
+  btn.disabled = true;
+  btn.textContent = "✓ Full lesson shown";
 }
 /* Reveal the content gated behind a KC when the employee clicks Continue.
    Block lessons reveal the next pre-built segment (a single hidden→shown toggle,
@@ -741,6 +777,7 @@ function lessonAccItem(l, i, academyKey, openByDefault) {
         </span>
       </button>
       <div class="lesson-acc-body">
+        ${adminPreviewButton(l)}
         ${hasRealBlocks(l)
           ? `<div class="cm-rendered cm-blocks" data-blocks="1" data-lesson-blocks="${escHtml(l.id)}"></div>`
           : `<div class="cm-rendered">${renderLessonContent(l.contentBody)}</div>`}

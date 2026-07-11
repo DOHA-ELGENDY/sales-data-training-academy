@@ -1070,8 +1070,48 @@ a.nav-item { color: #cdd8e6; }
 .cm-sr-edit:hover { background: #1d4ed8; color: #fff; }
 .cm-sr-empty { padding: 18px 12px; text-align: center; color: var(--muted); font-size: 13px; }
 
-/* Learning Path search reuses the .cm-search* look; widen it for the page */
-.lp-search { max-width: 100%; margin: 0 0 18px; }
+/* ---- Learning Path search (employee) — scoped layout overrides ---- */
+/* Root cause of the "results hidden behind cards": the search container had a
+   positioning context but no z-index, so its absolutely-positioned dropdown
+   painted in document order and the later progress/module cards covered it.
+   Giving .lp-search its own stacking context (z-index) lifts the whole search
+   — dropdown included — above everything that follows it. */
+.lp-search {
+  position: relative;          /* dropdown positioning context */
+  z-index: 60;                 /* lift the whole search (incl. results) above the cards below */
+  width: 100%;
+  max-width: 720px;            /* clear cap; sits at the content's start edge (RTL-aware) */
+  margin: 8px 0 24px;          /* clear spacing under the page header + below */
+}
+.lp-search .cm-search-box { min-height: 48px; padding: 0 14px; gap: 10px; }
+.lp-search .cm-search-ico {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 16px; line-height: 1; opacity: .65; flex-shrink: 0;
+}
+.lp-search .cm-search-input {
+  height: 46px; line-height: 46px; padding: 0;
+  font-size: 15px; text-align: start;   /* RTL-aware: right-aligned on the RTL page */
+}
+.lp-search .cm-search-input::placeholder { color: var(--muted); opacity: 1; }
+.lp-search .cm-search-clear { width: 24px; height: 24px; }
+
+/* Results: directly under the input, full box width, above all cards, own scroll */
+.lp-search .cm-search-results {
+  position: absolute; top: calc(100% + 8px);
+  inset-inline-start: 0; inset-inline-end: 0; width: auto;
+  z-index: 200; max-height: min(60vh, 480px);
+  overflow-y: auto; overflow-x: hidden;
+}
+.lp-search .cm-search-results[hidden] { display: none; }
+/* RTL readability: align rows to the start; mixed Arabic/English stays correct */
+.lp-search .cm-sr-title,
+.lp-search .cm-sr-meta,
+.lp-search .cm-sr-snippet { text-align: start; }
+
+@media (max-width: 640px) {
+  .lp-search { max-width: 100%; }
+  .lp-search .cm-search-results { max-height: 55vh; }
+}
 .lp-search-toast {
   position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
   background: #1f2937; color: #fff; font-size: 13.5px; font-weight: 600;

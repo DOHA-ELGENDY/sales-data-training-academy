@@ -82,6 +82,18 @@
         <p class="muted">أنشئ وعدّل محتوى الأكاديميات من هنا. (نسخة أولية بدون Database)</p>
       </div>
 
+      <!-- Content search (admin only) — searches the selected Academy's content -->
+      <div class="cm-search reveal" id="cmSearch" hidden>
+        <div class="cm-search-box">
+          <span class="cm-search-ico" aria-hidden="true">🔎</span>
+          <input type="search" id="cmSearchInput" class="cm-search-input"
+                 placeholder="Search modules, lessons, content, assignments..."
+                 autocomplete="off" aria-label="Search content" role="searchbox" />
+          <button type="button" class="cm-search-clear" id="cmSearchClear" aria-label="Clear search" hidden>✕</button>
+        </div>
+        <div class="cm-search-results" id="cmSearchResults" role="listbox" aria-label="Search results" hidden></div>
+      </div>
+
       <!-- Export / Import content backup (localStorage ↔ JSON file) -->
       <div class="cm-io reveal">
         <button class="btn btn-ghost" id="cmExportBtn">⬇ Export Content</button>
@@ -358,5 +370,6 @@
   <script src="editor.js"></script>
   <script src="block_builder.js"></script>
   <script src="content_manager.js"></script>
+  <script src="content_search.js"></script>
 </body>
 </html>

@@ -82,6 +82,15 @@ function createRichEditor(mount, opts) {
   const toolbar = mount.querySelector(".rte-toolbar");
   const area = mount.querySelector(".rte-area");
 
+  // Drop toolbar actions the caller doesn't want (e.g. the nested Scenario
+  // editor excludes "knowledge" so a Knowledge Check can't nest inside itself).
+  if (opts.exclude && opts.exclude.length) {
+    opts.exclude.forEach(a => {
+      const b = toolbar.querySelector('[data-action="' + a + '"]');
+      if (b) b.remove();
+    });
+  }
+
   // Hidden file input for image insertion.
   const imgInput = document.createElement("input");
   imgInput.type = "file";
@@ -333,22 +342,47 @@ function createRichEditor(mount, opts) {
       `<div class="kc-edit-top"><span class="kc-edit-badge">Knowledge Check</span>` +
       `<select class="kc-f-type">${opts}</select>` +
       `<button type="button" class="kc-f-remove" title="Remove">✕</button></div>` +
-      `<input type="text" class="kc-f-question" placeholder="Question / task instructions" value="${esc(kc.question || "")}">` +
+      `<label class="kc-f-fieldlabel">Scenario / Prompt</label>` +
+      `<div class="kc-f-question rte-mount"></div>` +
       `<div class="kc-f-body">${kcBodyHtml(kc)}</div>` +
       `<input type="text" class="kc-f-explanation" placeholder="Explanation (optional)" value="${esc(kc.explanation || "")}">` +
       `</div>`;
   }
-  function insertKnowledgeCheck() { insertHTML(kcEditHtml(null) + "<p><br></p>"); }
+  function insertKnowledgeCheck() { insertHTML(kcEditHtml(null) + "<p><br></p>"); hydrateKcQuestions(); }
+
+  /* Turn each KC card's Scenario / Prompt mount into its own rich editor (reusing
+     the same editor). Runs after a KC is inserted and after stored content loads;
+     skips cards already hydrated. The nested editor's HTML is mirrored into the
+     card's data-kc via syncKcBlock, so getHTML persists it like any other field. */
+  function hydrateKcQuestions() {
+    area.querySelectorAll(".kc-edit").forEach(card => {
+      const qMount = card.querySelector(".kc-f-question");
+      if (!qMount || qMount._rte) return;
+      let kc = {};
+      try { kc = JSON.parse(card.getAttribute("data-kc")) || {}; } catch (e) {}
+      const ed = createRichEditor(qMount, {
+        placeholder: "Scenario / Prompt — اكتب الحالة أو السؤال أو الـ business case…",
+        exclude: ["knowledge"],
+        onChange: () => { syncKcBlock(card); sync(); }
+      });
+      qMount._rte = ed;
+      ed.setHTML(kc.question || "");
+    });
+  }
 
   /* Mirror an editable card's current field values into its data-kc attribute. */
   function syncKcBlock(block) {
     let prev = {};
     try { prev = JSON.parse(block.getAttribute("data-kc")) || {}; } catch (e) {}
     const type = block.querySelector(".kc-f-type").value;
+    const qMount = block.querySelector(".kc-f-question");
+    // Scenario / Prompt is a nested rich editor; read its HTML (fall back to the
+    // stored value if it hasn't been hydrated yet, so nothing is lost).
+    const question = (qMount && qMount._rte) ? qMount._rte.getHTML() : (prev.question || "");
     const kc = {
       id: prev.id || kcId(),
       type: type,
-      question: block.querySelector(".kc-f-question").value,
+      question: question,
       explanation: block.querySelector(".kc-f-explanation").value
     };
     if (type === "mcq") {
@@ -522,6 +556,9 @@ function createRichEditor(mount, opts) {
 
   /* ---- Public API ---- */
   function getHTML() {
+    // Ensure each KC card's data-kc reflects its live fields (incl. the nested
+    // Scenario editor) before serializing.
+    area.querySelectorAll(".kc-edit").forEach(syncKcBlock);
     const clone = area.cloneNode(true);
     clone.querySelectorAll("a[href]").forEach(a => { a.setAttribute("target", "_blank"); a.setAttribute("rel", "noopener"); });
     clone.querySelectorAll(".rte-selected").forEach(el => el.classList.remove("rte-selected"));
@@ -550,6 +587,7 @@ function createRichEditor(mount, opts) {
       el.replaceWith(wrap.firstElementChild);
     });
     area.innerHTML = tmp.innerHTML;
+    hydrateKcQuestions();
     sync();
   }
   function clear() { area.innerHTML = ""; sync(); }

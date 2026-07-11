@@ -215,7 +215,7 @@ function kcWidgetHtml(kc) {
   }
   return `
     <div class="kc-head"><span class="kc-badge">Knowledge Check</span></div>
-    <div class="kc-q">${escHtml(kc.question || "")}</div>
+    <div class="kc-q kc-q-rich">${kc.question || ""}</div>
     <div class="kc-opts">${body}</div>
     ${kc.explanation ? `<div class="kc-explain" hidden><strong>💡</strong> ${escHtml(kc.explanation)}</div>` : ""}
     <div class="kc-actions">

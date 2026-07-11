@@ -1304,6 +1304,25 @@ a.nav-item { color: #cdd8e6; }
 /* Learning Path interactive widget */
 .kc-head { margin-bottom: 8px; }
 .kc-q { font-size: 15px; font-weight: 700; color: var(--text); line-height: 1.5; margin-bottom: 12px; }
+/* Rich Scenario / Prompt authored in the editor — render lists, headings,
+   paragraphs, RTL and inline formatting as authored (weight comes from tags). */
+.kc-q-rich { font-weight: 400; }
+.kc-q-rich > :first-child { margin-top: 0; }
+.kc-q-rich > :last-child { margin-bottom: 0; }
+.kc-q-rich p { margin: 0 0 10px; }
+.kc-q-rich h1, .kc-q-rich h2, .kc-q-rich h3 { font-weight: 800; line-height: 1.3; margin: 12px 0 8px; }
+.kc-q-rich h1 { font-size: 20px; }
+.kc-q-rich h2 { font-size: 18px; }
+.kc-q-rich h3 { font-size: 16px; }
+.kc-q-rich ul, .kc-q-rich ol { margin: 8px 0 10px; padding-inline-start: 22px; }
+.kc-q-rich li { margin: 4px 0; }
+.kc-q-rich ul { list-style: disc; }
+.kc-q-rich ol { list-style: decimal; }
+.kc-q-rich a { color: var(--primary); text-decoration: underline; }
+.kc-q-rich img, .kc-q-rich figure img { max-width: 100%; height: auto; border-radius: 8px; }
+.kc-q-rich blockquote { margin: 8px 0; padding: 6px 12px; border-inline-start: 3px solid var(--border); color: var(--muted); }
+.kc-q-rich table { border-collapse: collapse; max-width: 100%; }
+.kc-q-rich th, .kc-q-rich td { border: 1px solid var(--border); padding: 6px 10px; }
 .kc-opts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 .kc-opt {
   display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text); cursor: pointer;
@@ -1362,7 +1381,10 @@ a.nav-item { color: #cdd8e6; }
   font-family: inherit; font-size: 14px; padding: 8px 10px;
   border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fff; color: var(--text);
 }
-.kc-edit .kc-f-question { width: 100%; display: block; margin-bottom: 10px; font-weight: 600; }
+/* Scenario / Prompt is a nested rich editor (createRichEditor) inside the card. */
+.kc-f-fieldlabel { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin: 2px 0 6px; letter-spacing: .02em; }
+.kc-edit .kc-f-question { width: 100%; display: block; margin-bottom: 10px; background: #fff; border-radius: var(--radius-sm); }
+.kc-edit .kc-f-question .rte-area { min-height: 84px; }
 .kc-edit .kc-f-explanation { width: 100%; display: block; margin-top: 10px; }
 .kc-f-remove { border: none; background: transparent; color: var(--danger); cursor: pointer; font-size: 14px; padding: 2px 6px; border-radius: 6px; }
 .kc-f-remove:hover { background: #fdeaea; }

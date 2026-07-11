@@ -264,6 +264,7 @@ function normModule(m) {
 function normLesson(l) {
   const order = (l.order === 0 || (l.order != null && l.order !== "")) ? Number(l.order) : "";
   const activities = parseMaybe(l.activities, []);
+  const blocks = parseMaybe(l.blocks, []);
   return {
     id: s_(l.id), academyKey: s_(l.academyKey), moduleId: s_(l.moduleId),
     moduleNumber: s_(l.moduleNumber), lessonNumber: s_(l.lessonNumber),
@@ -271,6 +272,7 @@ function normLesson(l) {
     contentBody: s_(l.contentBody), status: s_(l.status) || "Draft", order: order,
     assignment: parseMaybe(l.assignment, null),
     activities: Array.isArray(activities) ? activities : [],
+    blocks: Array.isArray(blocks) ? blocks : [],
     updatedAt: s_(l.updatedAt)
   };
 }
@@ -460,6 +462,155 @@ function renderLessonContent(text) {
   const s = String(text == null ? "" : text);
   if (!s.trim()) return '<p class="muted">لا يوجد محتوى.</p>';
   return looksLikeHtml(s) ? s : renderRichText(s);
+}
+
+/* ============================================================
+   LESSON BLOCKS — ordered, manageable content blocks
+   ------------------------------------------------------------
+   A lesson's content is an ordered array `lesson.blocks`. Each block:
+     { id, type, order, status, data, createdAt, updatedAt }
+   Legacy lessons (contentBody, no blocks) are treated as ONE Rich Text
+   block automatically (lessonBlocks()) — nothing to rebuild by hand, and
+   contentBody is never removed. Each block renders to the SAME HTML the
+   app already uses, so the Learning Path renderer + Knowledge Check
+   gating are reused unchanged.
+   ============================================================ */
+const BLOCK_TYPES = [
+  { type: "richtext",         label: "Rich Text",            icon: "📝" },
+  { type: "image",            label: "Image",                icon: "🖼️" },
+  { type: "youtube",          label: "YouTube Video",        icon: "📺" },
+  { type: "file",             label: "PDF / File",           icon: "📎" },
+  { type: "resource",         label: "Resource Link",        icon: "🔗" },
+  { type: "knowledge",        label: "Knowledge Check",      icon: "❓" },
+  { type: "callout-info",     label: "Information Callout",  icon: "ℹ️" },
+  { type: "callout-tip",      label: "Tip Callout",          icon: "💡" },
+  { type: "callout-warning",  label: "Warning Callout",      icon: "⚠️" },
+  { type: "divider",          label: "Divider",              icon: "―" },
+  { type: "summary",          label: "Summary",              icon: "📌" }
+];
+function blockTypeMeta(type) { return BLOCK_TYPES.find(t => t.type === type) || { type: type, label: type, icon: "▪" }; }
+function blockId() { return "b" + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4); }
+function kcDefaultData() {
+  return { id: "kc_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36),
+           type: "mcq", question: "", choices: ["", ""], correct: 0, explanation: "" };
+}
+function defaultBlockData(type) {
+  switch (type) {
+    case "image":  return { url: "", caption: "", size: "medium" };
+    case "youtube": return { url: "", videoId: "" };
+    case "file":   return { url: "", name: "" };
+    case "resource": return { title: "", url: "", description: "" };
+    case "knowledge": return kcDefaultData();
+    case "callout-info": case "callout-tip": case "callout-warning": return { title: "", body: "" };
+    case "divider": return {};
+    case "richtext": case "summary": default: return { html: "" };
+  }
+}
+function newBlock(type) {
+  const now = new Date().toISOString();
+  return { id: blockId(), type: type, order: 0, status: "Published", data: defaultBlockData(type), createdAt: now, updatedAt: now };
+}
+
+/* Blocks for a lesson, in order. Legacy lessons → one synthesized Rich Text
+   block from contentBody (never mutates the stored lesson). */
+function lessonBlocks(lesson) {
+  if (lesson && Array.isArray(lesson.blocks) && lesson.blocks.length) {
+    return lesson.blocks.slice().sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+  }
+  const html = lesson ? String(lesson.contentBody || "") : "";
+  if (!html.trim()) return [];
+  const now = (lesson && lesson.updatedAt) || new Date().toISOString();
+  return [{
+    id: "legacy-" + ((lesson && lesson.id) || "x"), type: "richtext", order: 0, status: "Published",
+    data: { html: looksLikeHtml(html) ? html : renderRichText(html) }, createdAt: now, updatedAt: now
+  }];
+}
+
+/* Attribute-safe escaping for values placed inside an HTML attribute. */
+function escAttr(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function ytVideoId(url) {
+  const u = String(url || "").trim();
+  let m = u.match(/[?&]v=([A-Za-z0-9_-]{6,})/); if (m) return m[1];
+  m = u.match(/youtu\.be\/([A-Za-z0-9_-]{6,})/); if (m) return m[1];
+  m = u.match(/youtube\.com\/embed\/([A-Za-z0-9_-]{6,})/); if (m) return m[1];
+  m = u.match(/youtube\.com\/shorts\/([A-Za-z0-9_-]{6,})/); if (m) return m[1];
+  return null;
+}
+function blockFileIcon(name) {
+  const n = String(name || "").toLowerCase();
+  if (n.endsWith(".pdf")) return "📕";
+  if (n.endsWith(".docx") || n.endsWith(".doc")) return "📘";
+  if (n.endsWith(".pptx") || n.endsWith(".ppt")) return "📙";
+  if (n.endsWith(".xlsx") || n.endsWith(".xls")) return "📗";
+  return "📎";
+}
+
+/* Render ONE block to the HTML fragment used by the Learning Path (and, when
+   flattened, by the rollback-safe contentBody). Formats match the existing
+   inline editor output so all current rendering/gating keeps working. */
+function blockToHtml(b) {
+  if (!b) return "";
+  const d = b.data || {};
+  switch (b.type) {
+    case "richtext": return d.html || "";
+    case "summary":
+      return (d.html && d.html.trim())
+        ? `<div class="lesson-summary"><h4 class="lesson-summary-title">📌 Summary</h4>${d.html}</div>` : "";
+    case "image": {
+      if (!d.url) return "";
+      const sz = ({ small: "sm", medium: "md", large: "lg" })[d.size || "medium"] || "md";
+      return `<figure class="rte-figure rte-size-${sz}"><img src="${escAttr(d.url)}" alt="${escAttr(d.caption || "")}">` +
+        (d.caption ? `<figcaption>${escHtml(d.caption)}</figcaption>` : "") + `</figure>`;
+    }
+    case "youtube": {
+      const id = d.videoId || ytVideoId(d.url);
+      if (!id) return d.url ? `<p><a href="${escAttr(d.url)}" target="_blank" rel="noopener">${escHtml(d.url)}</a></p>` : "";
+      return `<div class="lp-embed"><iframe src="https://www.youtube.com/embed/${escAttr(id)}" ` +
+        `title="YouTube video" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>`;
+    }
+    case "file": {
+      if (!d.url) return "";
+      const nm = d.name || "File";
+      const ext = (String(nm).split(".").pop() || "FILE").toUpperCase();
+      return `<div class="lp-file"><a href="${escAttr(d.url)}" target="_blank" rel="noopener" download>` +
+        `<span class="lp-file-ico">${blockFileIcon(nm)}</span><span class="lp-file-meta">` +
+        `<span class="lp-file-name">${escHtml(nm)}</span><span class="lp-file-sub">${escHtml(ext)} · Download</span></span></a></div>`;
+    }
+    case "resource": {
+      if (!d.url && !d.title) return "";
+      return `<div class="lp-resource"><a href="${escAttr(d.url || "#")}" target="_blank" rel="noopener">` +
+        `<span class="lp-resource-ico">🔗</span><span class="lp-resource-body">` +
+        `<span class="lp-resource-title">${escHtml(d.title || d.url || "")}</span>` +
+        (d.description ? `<span class="lp-resource-desc">${escHtml(d.description)}</span>` : "") +
+        (d.url ? `<span class="lp-resource-url">${escHtml(d.url)}</span>` : "") +
+        `</span></a></div>`;
+    }
+    case "knowledge":
+      return `<div class="kc-block" data-kc="${escAttr(JSON.stringify(d || {}))}"></div>`;
+    case "callout-info": case "callout-tip": case "callout-warning": {
+      const kind = b.type.replace("callout-", "");
+      const title = d.title ? `<p class="callout-title"><strong>${escHtml(d.title)}</strong></p>` : "";
+      const body = (d.body && d.body.trim()) ? d.body : "";
+      if (!title && !body) return "";
+      return `<div class="callout callout-${kind}">${title}${body}</div>`;
+    }
+    case "divider": return `<hr class="lesson-divider">`;
+    default: return "";
+  }
+}
+/* Flatten blocks to one HTML string (skips Draft blocks). */
+function blocksToHtml(blocks) {
+  return (blocks || []).filter(b => b && b.status !== "Draft").map(blockToHtml).join("");
+}
+/* Learning-Path lesson content: from blocks when present, else legacy contentBody. */
+function renderLessonBlocksHtml(lesson) {
+  const blocks = lessonBlocks(lesson);
+  if (!blocks.length) return renderLessonContent(lesson ? lesson.contentBody : "");
+  const html = blocksToHtml(blocks);
+  return (html && html.trim()) ? html : '<p class="muted">لا يوجد محتوى.</p>';
 }
 
 /* ---------- Team selection cards (index.html) ---------- */

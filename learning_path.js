@@ -608,7 +608,7 @@ function lessonAccItem(l, i, academyKey, openByDefault) {
         </span>
       </button>
       <div class="lesson-acc-body">
-        <div class="cm-rendered">${renderLessonContent(l.contentBody)}</div>
+        <div class="cm-rendered">${renderLessonBlocksHtml(l)}</div>
         ${assignmentBlock(l.assignment)}
         ${submissionForm(l)}
         ${activitiesBlock(l, academyKey)}

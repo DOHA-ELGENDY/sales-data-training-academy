@@ -17,8 +17,8 @@ const CM_TREE_COLLAPSED = new Set();
 /* Learning Objectives rows for the module currently in the Module form. */
 let MOD_OBJECTIVES = [""];
 
-/* Rich text editor instance for the Lesson Content field. */
-let lessonEditor = null;
+/* Lesson content is authored as ordered blocks via window.LessonBlocks
+   (block_builder.js). The single Rich Text editor is now one block type. */
 
 function uid() {
   return "c" + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
@@ -307,7 +307,7 @@ function clearLessonForm() {
   $("lNumber").value = nextLessonNumber($("lModule").value);
   $("lTitle").value = "";
   $("lBody").value = "";
-  if (lessonEditor) lessonEditor.clear();
+  if (window.LessonBlocks) LessonBlocks.reset(); // new lesson → one empty Rich Text block
   $("lStatus").value = "Draft";
   $("lSaveBtn").textContent = "Save Lesson";
   $("lMsg").textContent = "";
@@ -324,12 +324,10 @@ function fillLessonForm(l) {
   $("lId").value = l.id;
   $("lNumber").value = l.lessonNumber || "";
   $("lTitle").value = l.lessonTitle || "";
-  const content = l.contentBody || "";
-  $("lBody").value = content;
-  // Legacy plain-text lessons are converted to HTML for the rich editor.
-  if (lessonEditor) {
-    lessonEditor.setHTML(!content.trim() ? "" : (looksLikeHtml(content) ? content : renderRichText(content)));
-  }
+  $("lBody").value = l.contentBody || "";
+  // Load blocks. Legacy lessons (contentBody, no blocks) become one Rich Text
+  // block automatically via lessonBlocks() — nothing to rebuild by hand.
+  if (window.LessonBlocks) LessonBlocks.load(lessonBlocks(l));
   $("lStatus").value = l.status || "Draft";
   $("lSaveBtn").textContent = "Update Lesson";
   fillAssignmentForm(l.assignment);
@@ -343,7 +341,10 @@ function saveLesson(e) {
   e.preventDefault();
   const moduleId = $("lModule").value;
   const title = $("lTitle").value.trim();
-  const body = lessonEditor ? lessonEditor.getHTML() : $("lBody").value;
+  // Content is now an ordered array of blocks. contentBody is kept in sync as a
+  // flattened HTML rendering for backward-compatibility + rollback safety.
+  const blocks = window.LessonBlocks ? LessonBlocks.getBlocks() : [];
+  const body = blocksToHtml(blocks);
   const msg = $("lMsg");
 
   if (!moduleId) {
@@ -351,9 +352,14 @@ function saveLesson(e) {
     msg.textContent = "اختر Module الأول (أضفه من تاب Modules).";
     return;
   }
-  if (!title || !body.trim()) {
+  if (!title) {
     msg.style.color = "#dc2626";
-    msg.textContent = "Lesson Title و Lesson Content مطلوبين.";
+    msg.textContent = "Lesson Title مطلوب.";
+    return;
+  }
+  if (!blocks.length) {
+    msg.style.color = "#dc2626";
+    msg.textContent = "أضف بلوك واحد على الأقل لمحتوى الدرس (+ Add Block).";
     return;
   }
 
@@ -368,6 +374,7 @@ function saveLesson(e) {
     moduleNumber: mod ? mod.moduleNumber : "",
     lessonNumber: $("lNumber").value.trim(),
     lessonTitle: title,
+    blocks: blocks,
     contentBody: body,
     status: $("lStatus").value,
     // New lessons go to the end of the module; existing ones keep their place.
@@ -943,11 +950,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("lAcademy").value = getSelectedAcademy() || ACADEMIES[0].key;
   LESSON_ITEMS = loadLessons();
 
-  // ----- Rich text editor for Lesson Content -----
-  lessonEditor = createRichEditor($("lEditor"), {
-    placeholder: "اكتب محتوى الدرس هنا…",
-    onChange: html => { $("lBody").value = html; }
-  });
+  // ----- Lesson Block Builder (ordered content blocks) -----
+  if (window.LessonBlocks) LessonBlocks.init($("lBlocks"));
 
   // ----- Activities sub-editor (inside the lesson editor) -----
   $("actType").innerHTML = ACTIVITY_TYPES.map(t => `<option value="${t.value}">${escHtml(t.label)}</option>`).join("");

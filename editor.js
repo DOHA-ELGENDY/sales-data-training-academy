@@ -91,6 +91,15 @@ function createRichEditor(mount, opts) {
     });
   }
 
+  // Single-KC mode: the editor hosts exactly one Knowledge Check card (used by
+  // the Knowledge Check *block*). Hide the toolbar and make the surrounding
+  // area non-editable so only the KC card's controls (and its nested Scenario
+  // editor) are interactive — no stray text, no extra blocks.
+  if (opts.singleKc) {
+    mount.classList.add("rte-single-kc");
+    area.setAttribute("contenteditable", "false");
+  }
+
   // Hidden file input for image insertion.
   const imgInput = document.createElement("input");
   imgInput.type = "file";

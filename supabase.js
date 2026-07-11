@@ -83,6 +83,7 @@ window.SB = (function () {
       sort_order: order,
       assignment: l.assignment || null,
       activities: Array.isArray(l.activities) ? l.activities : [],
+      blocks: Array.isArray(l.blocks) ? l.blocks : [],
       updated_at: l.updatedAt || new Date().toISOString()
     };
   }
@@ -95,9 +96,18 @@ window.SB = (function () {
       order: (r.sort_order === null || r.sort_order === undefined) ? "" : r.sort_order,
       assignment: r.assignment || null,
       activities: Array.isArray(r.activities) ? r.activities : [],
+      blocks: Array.isArray(r.blocks) ? r.blocks : [],
       updatedAt: r.updated_at
     };
   }
+  /* True when an error is PostgREST complaining the `blocks` column is missing
+     (migration not yet applied). Lets writes gracefully fall back so core
+     lesson sync is never blocked before lesson_blocks_schema.sql is run. */
+  function isMissingBlocksColumn(e) {
+    var m = String((e && e.message) || "");
+    return /blocks/.test(m) && /(column|schema cache|does not exist|PGRST204|find the)/i.test(m);
+  }
+  function stripBlocks(row) { var c = {}; for (var k in row) if (k !== "blocks") c[k] = row[k]; return c; }
 
   var UPSERT = { "Prefer": "resolution=merge-duplicates,return=minimal" };
   var MINIMAL = { "Prefer": "return=minimal" };
@@ -116,7 +126,13 @@ window.SB = (function () {
     return true;
   }
   async function upsertLesson(l) {
-    await req("/lessons?on_conflict=id", { method: "POST", headers: headers(UPSERT), body: JSON.stringify(lessonToRow(l)) });
+    var row = lessonToRow(l);
+    try {
+      await req("/lessons?on_conflict=id", { method: "POST", headers: headers(UPSERT), body: JSON.stringify(row) });
+    } catch (e) {
+      if (!isMissingBlocksColumn(e)) throw e;
+      await req("/lessons?on_conflict=id", { method: "POST", headers: headers(UPSERT), body: JSON.stringify(stripBlocks(row)) });
+    }
     return true;
   }
   async function deleteModule(id) {
@@ -133,7 +149,13 @@ window.SB = (function () {
       await req("/modules?on_conflict=id", { method: "POST", headers: headers(UPSERT), body: JSON.stringify(modules.map(moduleToRow)) });
     }
     if (lessons && lessons.length) {
-      await req("/lessons?on_conflict=id", { method: "POST", headers: headers(UPSERT), body: JSON.stringify(lessons.map(lessonToRow)) });
+      var rows = lessons.map(lessonToRow);
+      try {
+        await req("/lessons?on_conflict=id", { method: "POST", headers: headers(UPSERT), body: JSON.stringify(rows) });
+      } catch (e) {
+        if (!isMissingBlocksColumn(e)) throw e;
+        await req("/lessons?on_conflict=id", { method: "POST", headers: headers(UPSERT), body: JSON.stringify(rows.map(stripBlocks)) });
+      }
     }
     return true;
   }

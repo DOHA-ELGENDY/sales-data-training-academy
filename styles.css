@@ -1610,3 +1610,96 @@ a.nav-item { color: #cdd8e6; }
 @media (max-width: 720px) {
   .cm-panel-body .form-grid { grid-template-columns: 1fr; }
 }
+
+/* ============================================================
+   LESSON BLOCK BUILDER (Content Manager)
+   ============================================================ */
+.blk-builder { display: block; }
+.blk-list { display: flex; flex-direction: column; gap: 12px; }
+.blk-empty-state {
+  text-align: center; padding: 26px 16px; border: 1px dashed var(--border);
+  border-radius: var(--radius-sm); color: var(--muted); background: #fafbfe;
+}
+.blk-empty-ico { font-size: 26px; margin-bottom: 6px; }
+.blk-card {
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fff;
+  border-inline-start: 4px solid var(--primary); overflow: hidden;
+}
+.blk-head {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  background: #f4f8ff; border-bottom: 1px solid #e6edf9;
+}
+.blk-icon { font-size: 15px; }
+.blk-name { font-size: 13px; font-weight: 800; color: var(--text); }
+.blk-order { font-size: 11px; font-weight: 700; color: var(--muted); }
+.blk-actions { margin-inline-start: auto; display: flex; gap: 4px; }
+.blk-act {
+  border: 1px solid var(--border); background: #fff; color: var(--text); cursor: pointer;
+  width: 30px; height: 28px; border-radius: 7px; font-size: 13px; line-height: 1;
+}
+.blk-act:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); background: #eef2fb; }
+.blk-act:disabled { opacity: .4; cursor: default; }
+.blk-act.blk-del:hover { border-color: var(--danger); color: var(--danger); background: #fdeaea; }
+.blk-body { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.blk-hint { font-size: 12px; color: var(--muted); margin: 0; }
+.blk-input {
+  width: 100%; font-family: inherit; font-size: 14px; padding: 9px 11px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fff; color: var(--text);
+}
+.blk-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px rgba(37,99,235,.12); }
+.blk-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.blk-size { width: auto; }
+.blk-media { display: flex; flex-direction: column; gap: 8px; }
+.blk-preview {
+  border: 1px dashed var(--border); border-radius: var(--radius-sm); background: #fafbfe;
+  min-height: 90px; display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.blk-preview img { max-width: 100%; max-height: 260px; display: block; }
+.blk-embed { padding: 0; }
+.blk-embed iframe { width: 100%; aspect-ratio: 16/9; border: 0; display: block; }
+.blk-empty { color: var(--muted); font-size: 13px; padding: 14px; }
+.blk-msg { font-size: 12px; font-weight: 700; color: var(--muted); }
+.blk-filecard {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fafbfe;
+}
+.blk-file-ico { font-size: 22px; }
+.blk-file-name { display: block; font-weight: 700; font-size: 13px; }
+.blk-file-sub { display: block; font-size: 11px; color: var(--muted); }
+.blk-divider-demo hr { border: none; border-top: 2px dashed var(--border); margin: 6px 0; }
+.blk-rte .rte { border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.blk-kc { }
+.blk-add { position: relative; margin-top: 14px; }
+.blk-add-menu {
+  position: absolute; z-index: 20; margin-top: 6px; inset-inline-start: 0;
+  background: #fff; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  box-shadow: 0 12px 30px rgba(15,23,42,.14); padding: 6px; min-width: 240px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+}
+.blk-add-item {
+  display: flex; align-items: center; gap: 8px; text-align: start;
+  border: none; background: transparent; cursor: pointer; padding: 8px 10px;
+  border-radius: 8px; font: 600 13px/1.2 inherit; color: var(--text);
+}
+.blk-add-item:hover { background: #eef2fb; color: var(--primary); }
+.blk-add-ico { font-size: 15px; }
+
+/* Single-KC editor (Knowledge Check block) — hide the rich toolbar, keep only
+   the KC card + its nested Scenario editor. */
+.rte-single-kc .rte-toolbar { display: none; }
+.rte-single-kc .rte-area { min-height: 0; padding: 0; border: none; }
+.rte-single-kc .kc-edit { margin: 0; }
+.rte-single-kc .kc-f-remove { display: none; }
+
+/* ---- Block render (Learning Path) ---- */
+.lesson-summary {
+  margin: 16px 0 6px; padding: 14px 16px; border-radius: var(--radius-sm);
+  background: #eef7f0; border: 1px solid #cfe9d6; border-inline-start: 4px solid var(--success);
+}
+.lesson-summary-title { margin: 0 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: #12833c; }
+.lesson-divider { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+.callout-title { margin: 0 0 6px; }
+
+@media (max-width: 720px) {
+  .blk-add-menu { grid-template-columns: 1fr; }
+}

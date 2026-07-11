@@ -144,15 +144,56 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-/* Make every inline Knowledge Check interactive, then gate the content that
-   follows each one (hidden until answered correctly). */
+/* Build the DOM for every block-based lesson from lesson.blocks (authoritative),
+   in exact saved order. Each block's HTML is parsed inside its OWN isolated
+   container so mis-nested pasted markup can never leak into a sibling block, the
+   Knowledge Check, or the gate. The Knowledge Check element is created directly
+   and its data-kc is set with native setAttribute (no string concatenation, no
+   manual escaping — so it can never be corrupted and always JSON-parses). A KC
+   opens a hidden gate that holds every following block; a later KC nests a new
+   gate. Runs before processKnowledgeChecks (which then just builds the widgets). */
+function hydrateBlockLessons(root) {
+  root.querySelectorAll(".cm-rendered[data-lesson-blocks]").forEach(host => {
+    if (host.getAttribute("data-blocks-built")) return;
+    host.setAttribute("data-blocks-built", "1");
+    const lessonId = host.getAttribute("data-lesson-blocks");
+    const lesson = (typeof loadLessons === "function" ? loadLessons() : []).find(l => l.id === lessonId);
+    if (!lesson || !hasRealBlocks(lesson)) { console.warn("[blocks] no blocks for lesson", lessonId); return; }
+    const blocks = lesson.blocks.slice()
+      .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0))
+      .filter(b => b && b.status !== "Draft");
+    console.debug("[blocks] render lesson", lessonId, "→", blocks.map(b => b.type).join(", "));
+    host.innerHTML = "";
+    let target = host; // where the next block is appended (host, or the open gate)
+    blocks.forEach(b => {
+      if (b.type === "knowledge") {
+        const kcEl = document.createElement("div");
+        kcEl.className = "kc-block";
+        kcEl.setAttribute("data-kc", JSON.stringify(b.data || {})); // native escaping — safe
+        target.appendChild(kcEl);
+        const gate = document.createElement("div");
+        gate.className = "kc-gate";
+        gate.hidden = true;
+        gate.style.display = "none";
+        target.appendChild(gate);
+        target = gate; // subsequent blocks go inside this gate (nested for more KCs)
+      } else {
+        const wrap = document.createElement("div");
+        wrap.className = "lesson-block";
+        wrap.innerHTML = blockToHtml(b); // parsed in isolation inside this wrapper
+        target.appendChild(wrap);
+      }
+    });
+  });
+}
+
+/* Make every Knowledge Check interactive. Block-based lessons already have their
+   gates built by hydrateBlockLessons; legacy contentBody lessons are gated here
+   (lift nested inline KCs to top level, then hide content after each). */
 function processKnowledgeChecks(root) {
   root.querySelectorAll(".lesson-acc-body > .cm-rendered").forEach(rendered => {
     rendered.querySelectorAll(".kc-block[data-kc]").forEach(enhanceKnowledgeCheck);
-    // Block-based lessons already have their KC gates built in exact saved order
-    // by renderLessonBlocksHtml — do NOT run the legacy DOM surgery on them (it
-    // would lift nested KCs out of their gates and break ordering).
-    if (rendered.getAttribute("data-blocks")) return;
+    if (rendered.getAttribute("data-blocks")) return; // gates already built per block
     liftKcBlocks(rendered);   // legacy pasted content nests blocks — lift KCs to top level
     gateLessonContent(rendered);
   });
@@ -543,7 +584,8 @@ function renderCmModules(teamKey, ac) {
   container.querySelectorAll(".reveal:not(.in)").forEach((el, i) =>
     setTimeout(() => el.classList.add("in"), 30 * i));
 
-  // Make inline Knowledge Checks interactive + gate the content after them.
+  // Build block-based lessons (DOM, isolated per block) then make KCs interactive.
+  hydrateBlockLessons(container);
   processKnowledgeChecks(container);
 }
 
@@ -662,7 +704,9 @@ function lessonAccItem(l, i, academyKey, openByDefault) {
         </span>
       </button>
       <div class="lesson-acc-body">
-        <div class="cm-rendered${hasRealBlocks(l) ? " cm-blocks" : ""}"${hasRealBlocks(l) ? ' data-blocks="1"' : ""}>${renderLessonBlocksHtml(l)}</div>
+        ${hasRealBlocks(l)
+          ? `<div class="cm-rendered cm-blocks" data-blocks="1" data-lesson-blocks="${escHtml(l.id)}"></div>`
+          : `<div class="cm-rendered">${renderLessonContent(l.contentBody)}</div>`}
         ${assignmentBlock(l.assignment)}
         ${submissionForm(l)}
         ${activitiesBlock(l, academyKey)}

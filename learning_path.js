@@ -174,6 +174,41 @@ function saveCompletedPart(ctx, partId) {
   return set;
 }
 
+/* ---- Section presentation helpers (display only — no data/model changes) ---- */
+var _lpSectionTmp = document.createElement("div");
+/* Clean section name: the authored Part title, else the first heading / opening
+   line of its content (like Coursera/LinkedIn Learning). Never "Part 1". */
+function sectionDisplayTitle(part) {
+  var t = (part && part.title ? String(part.title) : "").trim();
+  if (t && !/^part\s*\d+$/i.test(t)) return t; // a real authored title
+  var name = "";
+  (part && part.blocks ? part.blocks : []).some(function (b) {
+    if ((b.type === "richtext" || b.type === "summary") && b.data && b.data.html) {
+      _lpSectionTmp.innerHTML = b.data.html;
+      var h = _lpSectionTmp.querySelector("h1,h2,h3,h4,h5,strong,b");
+      if (h && h.textContent.trim()) { name = h.textContent.trim(); return true; }
+      var txt = (_lpSectionTmp.textContent || "").trim();
+      if (txt) { name = txt.split(/[.!?\n]/)[0].trim().slice(0, 70); return true; }
+    }
+    return false;
+  });
+  return name || (t || "Section");
+}
+/* Estimated time for a section: ~200 wpm reading + ~1 min per media/check. */
+function sectionTimeLabel(part) {
+  var words = 0, media = 0;
+  (part && part.blocks ? part.blocks : []).forEach(function (b) {
+    var d = b.data || {};
+    if (b.type === "richtext" || b.type === "summary") {
+      _lpSectionTmp.innerHTML = d.html || "";
+      var txt = (_lpSectionTmp.textContent || "").trim();
+      words += txt ? txt.split(/\s+/).length : 0;
+    } else if (b.type === "youtube" || b.type === "file" || b.type === "image") { media += 1; }
+  });
+  if (part && part.knowledgeCheck && (part.knowledgeCheck.type || part.knowledgeCheck.question)) media += 1;
+  return Math.max(1, Math.ceil(words / 200) + media) + " min";
+}
+
 /* Build the Parts rows for every lesson (one .lp-parts host per lesson). */
 function renderLessonParts(root) {
   root.querySelectorAll(".lp-parts[data-lesson-parts]").forEach(host => {
@@ -207,7 +242,10 @@ function renderLessonParts(root) {
       head.setAttribute("aria-expanded", "false");
       head.innerHTML =
         '<span class="lp-part-ico" aria-hidden="true"></span>' +
-        '<span class="lp-part-title">Part ' + escHtml(p.partNumber) + ' — ' + escHtml(p.title) + '</span>' +
+        '<span class="lp-part-main">' +
+          '<span class="lp-part-title">' + escHtml(sectionDisplayTitle(p)) + '</span>' +
+          '<span class="lp-part-time">🕐 ' + escHtml(sectionTimeLabel(p)) + '</span>' +
+        '</span>' +
         '<span class="lp-part-status"></span>' +
         '<span class="lp-part-caret" aria-hidden="true">▶</span>';
       const body = document.createElement("div");

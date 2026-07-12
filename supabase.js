@@ -84,6 +84,7 @@ window.SB = (function () {
       assignment: l.assignment || null,
       activities: Array.isArray(l.activities) ? l.activities : [],
       blocks: Array.isArray(l.blocks) ? l.blocks : [],
+      parts: Array.isArray(l.parts) ? l.parts : [],
       updated_at: l.updatedAt || new Date().toISOString()
     };
   }
@@ -97,6 +98,7 @@ window.SB = (function () {
       assignment: r.assignment || null,
       activities: Array.isArray(r.activities) ? r.activities : [],
       blocks: Array.isArray(r.blocks) ? r.blocks : [],
+      parts: Array.isArray(r.parts) ? r.parts : [],
       updatedAt: r.updated_at
     };
   }
@@ -108,6 +110,17 @@ window.SB = (function () {
     return /blocks/.test(m) && /(column|schema cache|does not exist|PGRST204|find the)/i.test(m);
   }
   function stripBlocks(row) { var c = {}; for (var k in row) if (k !== "blocks") c[k] = row[k]; return c; }
+  /* Drop the lesson columns an older schema may lack (parts and/or blocks) so a
+     write is never blocked before lesson_parts_schema.sql / lesson_blocks_schema.sql
+     is run. content_body still persists, so no content is lost meanwhile. */
+  function stripLessonUnknownCols(row, e) {
+    var m = String((e && e.message) || ""), out = row, changed = false;
+    if (/PGRST204|schema cache|does not exist|find the/i.test(m)) {
+      if (/parts/.test(m) && ("parts" in out)) { var a = {}; for (var k in out) if (k !== "parts") a[k] = out[k]; out = a; changed = true; }
+      if (/blocks/.test(m) && ("blocks" in out)) { var b = {}; for (var j in out) if (j !== "blocks") b[j] = out[j]; out = b; changed = true; }
+    }
+    return changed ? out : null;
+  }
 
   var UPSERT = { "Prefer": "resolution=merge-duplicates,return=minimal" };
   var MINIMAL = { "Prefer": "return=minimal" };
@@ -130,8 +143,9 @@ window.SB = (function () {
     try {
       await req("/lessons?on_conflict=id", { method: "POST", headers: headers(UPSERT), body: JSON.stringify(row) });
     } catch (e) {
-      if (!isMissingBlocksColumn(e)) throw e;
-      await req("/lessons?on_conflict=id", { method: "POST", headers: headers(UPSERT), body: JSON.stringify(stripBlocks(row)) });
+      var stripped = stripLessonUnknownCols(row, e);
+      if (!stripped) throw e;
+      await req("/lessons?on_conflict=id", { method: "POST", headers: headers(UPSERT), body: JSON.stringify(stripped) });
     }
     return true;
   }
@@ -153,8 +167,8 @@ window.SB = (function () {
       try {
         await req("/lessons?on_conflict=id", { method: "POST", headers: headers(UPSERT), body: JSON.stringify(rows) });
       } catch (e) {
-        if (!isMissingBlocksColumn(e)) throw e;
-        await req("/lessons?on_conflict=id", { method: "POST", headers: headers(UPSERT), body: JSON.stringify(rows.map(stripBlocks)) });
+        if (!stripLessonUnknownCols(rows[0], e)) throw e;
+        await req("/lessons?on_conflict=id", { method: "POST", headers: headers(UPSERT), body: JSON.stringify(rows.map(function (r) { return stripLessonUnknownCols(r, e) || r; })) });
       }
     }
     return true;

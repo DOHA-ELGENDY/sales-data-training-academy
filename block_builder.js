@@ -25,6 +25,8 @@ window.LessonBlocks = (function () {
   var mount = null, listEl = null, addMenuEl = null;
   var state = [];              // ordered array of block objects
   var editors = new Map();     // blockId -> { kind: "rte"|"callout"|"kc", ed }
+  var excludeTypes = [];       // block types hidden from the Add menu (e.g. "knowledge" in Parts mode)
+  var docCloseBound = false;   // add the document-level menu-close listener only once
 
   function nowISO() { return new Date().toISOString(); }
   function esc(s) {
@@ -345,7 +347,7 @@ window.LessonBlocks = (function () {
   /* ---------- add-block menu ---------- */
   function buildAddMenu() {
     return '<div class="blk-add-menu" data-role="add-menu" hidden>' +
-      BLOCK_TYPES.map(function (t) {
+      BLOCK_TYPES.filter(function (t) { return excludeTypes.indexOf(t.type) < 0; }).map(function (t) {
         return '<button type="button" class="blk-add-item" data-add-type="' + t.type + '">' +
           '<span class="blk-add-ico">' + t.icon + '</span>' + esc(t.label) + '</button>';
       }).join("") + '</div>';
@@ -357,8 +359,10 @@ window.LessonBlocks = (function () {
   }
 
   /* ---------- public ---------- */
-  function init(mountEl) {
+  function init(mountEl, opts) {
     if (!mountEl) return;
+    opts = opts || {};
+    excludeTypes = Array.isArray(opts.excludeTypes) ? opts.excludeTypes : [];
     mount = mountEl;
     mount.classList.add("blk-builder");
     mount.innerHTML =
@@ -377,10 +381,14 @@ window.LessonBlocks = (function () {
       toggleAddMenu(false);
       addBlock(item.getAttribute("data-add-type"));
     });
-    // Close the menu when clicking elsewhere.
-    document.addEventListener("click", function (e) {
-      if (addMenuEl && !addMenuEl.hidden && !mount.querySelector(".blk-add").contains(e.target)) toggleAddMenu(false);
-    });
+    // Close the menu when clicking elsewhere (bound once — init may run per Part).
+    if (!docCloseBound) {
+      docCloseBound = true;
+      document.addEventListener("click", function (e) {
+        if (addMenuEl && !addMenuEl.hidden && mount && mount.querySelector(".blk-add") &&
+            !mount.querySelector(".blk-add").contains(e.target)) toggleAddMenu(false);
+      });
+    }
     render();
   }
   function load(blocks) {

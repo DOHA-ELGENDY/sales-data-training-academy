@@ -214,10 +214,11 @@
               <input type="text" id="lTitle" placeholder="Understanding Sales Role" />
             </div>
             <div class="field field-full">
-              <label>Lesson Content — Blocks</label>
-              <div id="lBlocks"></div>
+              <label>Lesson Parts</label>
+              <div id="lParts"></div>
+              <div id="lBlocks" hidden></div>
               <textarea id="lBody" hidden></textarea>
-              <p class="cm-hint">قسّم محتوى الدرس إلى بلوكات مرتّبة. اضغط <strong>+ Add Block</strong> لإضافة نص غني، صورة، فيديو، ملف، Knowledge Check، تنبيه، Divider، أو ملخّص. رتّب بالأسهم ↑ ↓، كرّر ⧉، أو احذف ✕.</p>
+              <p class="cm-hint">قسّم الدرس إلى <strong>Parts</strong> مرتّبة. كل Part له عنوان، محتوى (نص غني، صورة، فيديو، ملف، رابط، تنبيه، ملخّص)، و<strong>Knowledge Check</strong> اختياري في نهايته. اضغط <strong>+ Add Part</strong>، ورتّب بالأسهم ↑ ↓، كرّر ⧉، أو احذف ✕.</p>
             </div>
 
             <!-- Lesson Assignment (belongs to this lesson) -->
@@ -362,6 +363,7 @@
   <script src="script.js"></script>
   <script src="editor.js"></script>
   <script src="block_builder.js"></script>
+  <script src="parts_builder.js"></script>
   <script src="content_manager.js"></script>
   <script src="content_search.js"></script>
 </body>

@@ -113,9 +113,10 @@
           var q = stripHtml(b.data && b.data.question);
           if (!q.trim()) return;
           idx.push({
-            resultType: "Knowledge Check", kind: "block",
+            resultType: "Knowledge Check", kind: "block", isKc: true,
             title: "Knowledge Check — " + (l.lessonTitle || ""),
-            moduleId: l.moduleId, lessonId: l.id, blockId: b.id, parentModule: parent,
+            // match the Part's knowledgeCheck by its data id (not the block id)
+            moduleId: l.moduleId, lessonId: l.id, blockId: (b.data && b.data.id) || b.id, parentModule: parent,
             fields: fieldsOf([["Knowledge Check Prompt", q]])
           });
         } else if (b.type === "resource") {
@@ -219,17 +220,18 @@
     }
     return item;
   }
-  // Which gated segment (0-based) holds this block, per the authoritative blocks.
-  function segIndexOfBlock(lesson, blockId) {
-    if (typeof lessonSegments !== "function") return 0;
-    var segs = lessonSegments(lesson.blocks || []);
-    for (var i = 0; i < segs.length; i++) {
-      if (segs[i].kc && segs[i].kc.id === blockId) return i;
-      for (var j = 0; j < segs[i].content.length; j++) if (segs[i].content[j].id === blockId) return i;
+  // Which Part (0-based) holds this block, and whether it IS the Part's KC.
+  function partPosOfBlock(lesson, blockId) {
+    if (typeof lessonParts !== "function") return { idx: 0, isKc: false };
+    var parts = lessonParts(lesson);
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i];
+      if (p.knowledgeCheck && (p.knowledgeCheck.id === blockId)) return { idx: i, isKc: true };
+      var bs = p.blocks || [];
+      for (var j = 0; j < bs.length; j++) if (bs[j].id === blockId) return { idx: i, isKc: false };
     }
-    return 0;
+    return { idx: 0, isKc: false };
   }
-  function visible(el) { return !!el && !el.hidden && el.style.display !== "none"; }
 
   function openResult(rec) {
     closeResults();
@@ -255,24 +257,32 @@
         else { item.scrollIntoView({ behavior: "smooth", block: "center" }); }
         return;
       }
-      // block / topic / knowledge check — respect gating
-      var host = item.querySelector('.cm-rendered[data-lesson-blocks="' + cssEsc(rec.lessonId) + '"]');
+      // block / topic / knowledge check — navigate to the Part, respecting gating.
+      var host = item.querySelector('.lp-parts[data-lesson-parts="' + cssEsc(rec.lessonId) + '"]');
       var lesson = (typeof loadLessons === "function" ? loadLessons() : []).find(function (l) { return l.id === rec.lessonId; }) || {};
-      var segEl = host ? host.querySelector('.kc-segment[data-seg-index="' + segIndexOfBlock(lesson, rec.blockId) + '"]') : null;
+      var pos = partPosOfBlock(lesson, rec.blockId);
+      var partItem = host ? host.querySelector('.lp-part-item[data-part-index="' + pos.idx + '"]') : null;
+      if (!partItem) { item.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
 
-      if (segEl && visible(segEl)) {
-        var target = segEl.querySelector('[data-block-id="' + cssEsc(rec.blockId) + '"]') || segEl;
-        target.scrollIntoView({ behavior: "smooth", block: "center" });
-        flash(target);
+      if (partItem.classList.contains("is-locked")) {
+        // Gated: do NOT open. Scroll to the nearest reachable Part + explain.
+        var reachable = host.querySelector(".lp-part-item.is-open") ||
+          Array.prototype.filter.call(host.querySelectorAll(".lp-part-item.is-available, .lp-part-item.is-completed"), function () { return true; }).pop();
+        (reachable || partItem).scrollIntoView({ behavior: "smooth", block: "center" });
+        toast("Complete the previous Knowledge Check to continue to this section.");
         return;
       }
-      // Gated: do NOT reveal. Scroll to the nearest visible point + explain.
-      var visibleSegs = host ? Array.prototype.filter.call(host.querySelectorAll(".kc-segment"), visible) : [];
-      var anchor = visibleSegs.length ? visibleSegs[visibleSegs.length - 1] : (item.querySelector(".lesson-acc-head") || item);
-      anchor.scrollIntoView({ behavior: "smooth", block: "center" });
-      var kc = anchor.querySelector ? anchor.querySelector(".kc-block") : null;
-      if (kc) flash(kc); else flash(anchor);
-      toast("Complete the previous Knowledge Check to continue to this section.");
+      // Reachable Part → open it, then scroll to the block / KC inside it.
+      if (!partItem.classList.contains("is-open")) {
+        var ph = partItem.querySelector(".lp-part-head"); if (ph) ph.click();
+      }
+      setTimeout(function () {
+        var target = pos.isKc ? partItem.querySelector(".kc-block")
+          : partItem.querySelector('[data-block-id="' + cssEsc(rec.blockId) + '"]');
+        target = target || partItem;
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+        flash(target);
+      }, 160);
     }, 420);
   }
 

@@ -307,7 +307,7 @@ function clearLessonForm() {
   $("lNumber").value = nextLessonNumber($("lModule").value);
   $("lTitle").value = "";
   $("lBody").value = "";
-  if (window.LessonBlocks) LessonBlocks.reset(); // new lesson → one empty Rich Text block
+  if (window.PartsBuilder) PartsBuilder.reset(); // new lesson → one empty Part
   $("lStatus").value = "Draft";
   $("lSaveBtn").textContent = "Save Lesson";
   $("lMsg").textContent = "";
@@ -325,9 +325,10 @@ function fillLessonForm(l) {
   $("lNumber").value = l.lessonNumber || "";
   $("lTitle").value = l.lessonTitle || "";
   $("lBody").value = l.contentBody || "";
-  // Load blocks. Legacy lessons (contentBody, no blocks) become one Rich Text
-  // block automatically via lessonBlocks() — nothing to rebuild by hand.
-  if (window.LessonBlocks) LessonBlocks.load(lessonBlocks(l));
+  // Load Parts. Authored lesson.parts is used when present; legacy lessons
+  // (blocks / contentBody only) are converted to Parts on the fly by
+  // lessonParts() — nothing to rebuild by hand.
+  if (window.PartsBuilder) PartsBuilder.load(l);
   $("lStatus").value = l.status || "Draft";
   $("lSaveBtn").textContent = "Update Lesson";
   fillAssignmentForm(l.assignment);
@@ -341,9 +342,10 @@ function saveLesson(e) {
   e.preventDefault();
   const moduleId = $("lModule").value;
   const title = $("lTitle").value.trim();
-  // Content is now an ordered array of blocks. contentBody is kept in sync as a
-  // flattened HTML rendering for backward-compatibility + rollback safety.
-  const blocks = window.LessonBlocks ? LessonBlocks.getBlocks() : [];
+  // A Lesson is now ordered Parts. lesson.blocks + contentBody are kept in sync
+  // (flattened from the Parts) for backward-compatible rendering + rollback.
+  const parts = window.PartsBuilder ? PartsBuilder.getParts() : [];
+  const blocks = (typeof partsToBlocks === "function") ? partsToBlocks(parts) : [];
   const body = blocksToHtml(blocks);
   const msg = $("lMsg");
 
@@ -357,9 +359,10 @@ function saveLesson(e) {
     msg.textContent = "Lesson Title مطلوب.";
     return;
   }
-  if (!blocks.length) {
+  const hasContent = parts.some(p => (typeof partHasContent === "function") ? partHasContent(p) : (p.blocks && p.blocks.length));
+  if (!hasContent) {
     msg.style.color = "#dc2626";
-    msg.textContent = "أضف بلوك واحد على الأقل لمحتوى الدرس (+ Add Block).";
+    msg.textContent = "أضف محتوى أو Knowledge Check لـ Part واحد على الأقل (+ Add Part).";
     return;
   }
 
@@ -374,8 +377,9 @@ function saveLesson(e) {
     moduleNumber: mod ? mod.moduleNumber : "",
     lessonNumber: $("lNumber").value.trim(),
     lessonTitle: title,
-    blocks: blocks,
-    contentBody: body,
+    parts: parts,          // authoritative Parts structure
+    blocks: blocks,        // flattened for backward-compatible rendering
+    contentBody: body,     // flattened HTML for legacy/rollback
     status: $("lStatus").value,
     // New lessons go to the end of the module; existing ones keep their place.
     order: (existing.order === 0 || existing.order) ? existing.order
@@ -971,8 +975,9 @@ document.addEventListener("DOMContentLoaded", () => {
   $("lAcademy").value = getSelectedAcademy() || ACADEMIES[0].key;
   LESSON_ITEMS = loadLessons();
 
-  // ----- Lesson Block Builder (ordered content blocks) -----
-  if (window.LessonBlocks) LessonBlocks.init($("lBlocks"));
+  // ----- Lesson Parts Builder (ordered Parts; each Part reuses the block
+  //        builder internally + an optional Knowledge Check) -----
+  if (window.PartsBuilder) PartsBuilder.init($("lParts"));
 
   // ----- Activities sub-editor (inside the lesson editor) -----
   $("actType").innerHTML = ACTIVITY_TYPES.map(t => `<option value="${t.value}">${escHtml(t.label)}</option>`).join("");

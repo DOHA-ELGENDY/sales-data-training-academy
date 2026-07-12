@@ -287,7 +287,10 @@
     }
     setTimeout(function () {
       if (rec.kind === "block" && rec.blockId) {
-        var card = document.querySelector('#lBlocks .blk-card[data-block-id="' + cssEsc(rec.blockId) + '"]');
+        // Blocks now live inside the open Part card (#lParts); fall back to the
+        // legacy flat builder (#lBlocks). If the block is in a collapsed Part the
+        // lesson still opens and the tree lesson is highlighted (below).
+        var card = document.querySelector('#lParts .blk-card[data-block-id="' + cssEsc(rec.blockId) + '"], #lBlocks .blk-card[data-block-id="' + cssEsc(rec.blockId) + '"]');
         if (card) { card.scrollIntoView({ behavior: "smooth", block: "center" }); flash(card); return; }
       }
       if (rec.kind === "assignment") {

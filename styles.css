@@ -998,6 +998,37 @@ a.nav-item { color: #cdd8e6; }
   /* No pixel cap: a long lesson's blocks must render fully (see .level-body). */
   max-height: none; overflow: visible; padding: 4px 14px 14px; border-top: 1px solid var(--border);
 }
+
+/* ---- Lesson Parts (employee Learning Path) ---- */
+.lp-parts { display: flex; flex-direction: column; gap: 10px; margin: 4px 0 8px; }
+.lp-parts-progress { display: flex; align-items: center; gap: 12px; padding: 2px 2px 4px; }
+.lp-parts-label { font-size: 12.5px; font-weight: 700; color: var(--muted); white-space: nowrap; }
+.lp-parts-bar { flex: 1; max-width: 260px; height: 6px; background: #eef2f7; border-radius: 99px; overflow: hidden; }
+.lp-parts-bar span { display: block; height: 100%; background: var(--primary); border-radius: 99px; transition: width .3s var(--ease); }
+.lp-part-item { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.lp-part-item.is-locked { background: #f7f8fa; }
+.lp-part-item.is-completed { border-color: #bfe6cd; }
+.lp-part-head {
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+  background: transparent; border: none; cursor: pointer; font-family: inherit;
+  text-align: inherit; color: var(--text); transition: background .15s var(--ease);
+}
+.lp-part-head:hover:not(:disabled) { background: #f4f7fd; }
+.lp-part-head:disabled { cursor: not-allowed; color: var(--muted); }
+.lp-part-ico { font-size: 14px; flex-shrink: 0; width: 20px; text-align: center; }
+.lp-part-item.is-completed .lp-part-ico { color: var(--success); }
+.lp-part-title { flex: 1; font-size: 14px; font-weight: 700; }
+.lp-part-status { font-size: 11px; font-weight: 700; color: var(--muted); background: #eef2f7; border-radius: 99px; padding: 2px 9px; white-space: nowrap; }
+.lp-part-item.is-completed .lp-part-status { background: #e7f7ec; color: #0a7c2f; }
+.lp-part-caret { color: var(--muted); font-size: 11px; flex-shrink: 0; transition: transform .2s var(--ease); }
+.lp-part-item.is-open .lp-part-caret { transform: rotate(90deg); color: var(--primary); }
+.lp-part-body { padding: 6px 14px 16px; border-top: 1px solid var(--border); }
+.lp-part-body[hidden] { display: none; }
+.lp-part-kc { margin-top: 14px; }
+.lp-part-actions { margin-top: 14px; }
+.lp-after-parts { margin-top: 10px; animation: lessonIn .25s var(--ease) both; }
+.lp-after-parts[hidden] { display: none; }
+
 @media (prefers-reduced-motion: reduce) {
   .lesson-acc-caret, .lesson-acc-body { transition: none; }
 }
@@ -1138,6 +1169,29 @@ a.nav-item { color: #cdd8e6; }
 .cm-bc-current { color: var(--primary); }
 .cm-bc-muted { color: var(--muted); font-weight: 600; }
 .cm-bc-sep { color: var(--muted); font-weight: 700; }
+
+/* ---- Lesson Parts Builder (Content Manager authoring) ---- */
+.parts-builder { display: flex; flex-direction: column; gap: 10px; }
+.parts-list { display: flex; flex-direction: column; gap: 10px; }
+.part-card { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.part-card.is-open { border-color: var(--primary); box-shadow: var(--shadow-sm); }
+.part-card-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; user-select: none; }
+.part-card-head:hover { background: #f4f7fd; }
+.part-badge { font-size: 11px; font-weight: 800; color: var(--primary); background: #eef2fb; border-radius: 99px; padding: 3px 10px; white-space: nowrap; flex-shrink: 0; }
+.part-card-title { font-size: 14px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+.part-card-sub { font-size: 12px; color: var(--muted); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.part-card-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.part-caret { color: var(--muted); font-size: 12px; transition: transform .2s var(--ease); flex-shrink: 0; }
+.part-card.is-open .part-caret { transform: rotate(180deg); color: var(--primary); }
+.part-card-body { padding: 6px 14px 16px; border-top: 1px solid var(--border); }
+.part-card-body[hidden] { display: none; }
+.part-field { margin-top: 14px; }
+.part-field > label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .4px; }
+.part-kc-field { border-top: 1px dashed var(--border); padding-top: 12px; }
+.part-kc-label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: var(--text); text-transform: none; letter-spacing: 0; cursor: pointer; }
+.part-kc-mount { margin-top: 10px; }
+.part-kc-mount[hidden] { display: none; }
+.parts-add { margin-top: 2px; }
 
 /* ---- Content Structure panel (Content Manager, Lessons tab) ---- */
 .cm-workspace { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 20px; align-items: start; }

@@ -716,6 +716,93 @@ if (typeof window !== "undefined") {
   window.kcBlockId = kcBlockId;
 }
 
+/* ============================================================
+   LESSON PARTS — ordered Parts, each with its own content blocks
+   and (optionally) ONE Knowledge Check at its end.
+   ------------------------------------------------------------
+   Authoritative source: lesson.parts (when non-empty). Legacy lessons
+   (only blocks / contentBody) are converted ON THE FLY: the ordered blocks
+   are split at every Knowledge Check — the KC closes the Part before it, and
+   content after it starts the next Part; no KC at all → one Part with all the
+   content. This never mutates the stored lesson, so blocks + contentBody are
+   fully preserved for backward compatibility.
+   ============================================================ */
+function partId() { return "part_" + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4); }
+function hasRealParts(lesson) { return !!(lesson && Array.isArray(lesson.parts) && lesson.parts.length); }
+
+function normalizePart(p, i) {
+  p = p || {};
+  var now = new Date().toISOString();
+  return {
+    id: p.id || partId(),
+    partNumber: (p.partNumber != null && p.partNumber !== "") ? String(p.partNumber) : String(i + 1),
+    title: p.title || ("Part " + (i + 1)),
+    order: (p.order === 0 || p.order) ? Number(p.order) : i,
+    status: p.status || "Published",
+    blocks: Array.isArray(p.blocks) ? p.blocks : [],
+    knowledgeCheck: (p.knowledgeCheck && typeof p.knowledgeCheck === "object") ? p.knowledgeCheck : null,
+    createdAt: p.createdAt || now,
+    updatedAt: p.updatedAt || now
+  };
+}
+
+/* Ordered, normalized Parts for a lesson (authoritative OR derived from blocks). */
+function lessonParts(lesson) {
+  if (hasRealParts(lesson)) {
+    return lesson.parts.slice()
+      .sort(function (a, b) { return (Number(a.order) || 0) - (Number(b.order) || 0); })
+      .map(normalizePart);
+  }
+  // Derive from blocks (lessonBlocks() also covers legacy contentBody).
+  var blocks = (lesson ? lessonBlocks(lesson) : []).filter(function (b) { return b && b.status !== "Draft"; });
+  var groups = [], cur = { blocks: [], knowledgeCheck: null };
+  blocks.forEach(function (b) {
+    if (b.type === "knowledge") { cur.knowledgeCheck = b.data || null; groups.push(cur); cur = { blocks: [], knowledgeCheck: null }; }
+    else cur.blocks.push(b);
+  });
+  if (cur.blocks.length || !groups.length) groups.push(cur);
+  var lid = (lesson && lesson.id) || "x";
+  return groups.map(function (g, i) {
+    return normalizePart({
+      id: "legacy-part-" + lid + "-" + i, partNumber: String(i + 1), title: "Part " + (i + 1),
+      order: i, status: "Published", blocks: g.blocks, knowledgeCheck: g.knowledgeCheck
+    }, i);
+  });
+}
+
+/* Flatten Parts back into one ordered blocks array (each Part's content blocks,
+   then its Knowledge Check as a knowledge block). Keeps lesson.blocks in sync so
+   the legacy renderer / rollback path keep working after Parts authoring. */
+function partsToBlocks(parts) {
+  var out = [], order = 0;
+  (parts || []).slice().sort(function (a, b) { return (Number(a.order) || 0) - (Number(b.order) || 0); }).forEach(function (p) {
+    (Array.isArray(p.blocks) ? p.blocks : []).forEach(function (b) {
+      out.push(Object.assign({}, b, { order: order++ }));
+    });
+    if (p.knowledgeCheck && (p.knowledgeCheck.question || p.knowledgeCheck.type)) {
+      out.push({
+        id: "b_" + ((p.knowledgeCheck && p.knowledgeCheck.id) || Math.random().toString(36).slice(2, 9)),
+        type: "knowledge", order: order++, status: "Published",
+        data: p.knowledgeCheck, createdAt: p.createdAt, updatedAt: p.updatedAt
+      });
+    }
+  });
+  return out;
+}
+/* True when a Part has any authored content or a Knowledge Check. */
+function partHasContent(p) {
+  return !!(p && ((Array.isArray(p.blocks) && p.blocks.some(function (b) { return blockToHtml(b).trim(); })) ||
+    (p.knowledgeCheck && (p.knowledgeCheck.question || p.knowledgeCheck.type))));
+}
+
+if (typeof window !== "undefined") {
+  window.lessonParts = lessonParts;
+  window.normalizePart = normalizePart;
+  window.partsToBlocks = partsToBlocks;
+  window.hasRealParts = hasRealParts;
+  window.partHasContent = partHasContent;
+}
+
 /* ---------- Team selection cards (index.html) ---------- */
 function renderTeamCards() {
   const grid = document.getElementById("teamGrid");

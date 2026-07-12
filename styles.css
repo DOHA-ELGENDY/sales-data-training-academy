@@ -1061,9 +1061,17 @@ a.nav-item { color: #cdd8e6; }
 .lp-part-actions { margin-top: 16px; }
 .lp-after-parts { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); animation: lessonIn .25s var(--ease) both; }
 .lp-after-parts[hidden] { display: none; }
+
+/* Knowledge Check step row — reads as an indented sub-step under its section */
+.lp-step-kc { margin-inline-start: 22px; }
+.lp-step-kc .lp-part-title { font-weight: 600; font-size: 13.5px; }
+.lp-step-kc.is-available .lp-part-ico { background: #f3e8ff; color: #6d28d9; }
+.lp-step-kc .lp-part-kc { margin-top: 2px; }
+
 @media (max-width: 640px) {
   .lp-part-status { display: none; }
   .lp-part-head { padding: 12px 12px; gap: 10px; }
+  .lp-step-kc { margin-inline-start: 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1599,14 +1607,6 @@ a.nav-item { color: #cdd8e6; }
 /* Block-lesson gated segments (render-time gating from lesson.blocks) */
 .kc-segment[hidden] { display: none !important; }
 .kc-segment { animation: lessonIn .25s var(--ease) both; }
-/* Admin-only "Preview Full Lesson" control (hidden from employees by markup) */
-.kc-admin-preview { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  margin: 0 0 14px; padding: 8px 12px; border: 1px dashed var(--border);
-  border-radius: 8px; background: #fbfaf5; }
-.kc-preview-all { background: #6d28d9; color: #fff; }
-.kc-preview-all:hover { background: #5b21b6; }
-.kc-preview-all.is-done, .kc-preview-all:disabled { background: #9ca3af; cursor: default; }
-.kc-admin-note { font-size: 12px; color: var(--muted); }
 
 /* ---- Knowledge Check editable card (Content Manager editor) ---- */
 .kc-edit {

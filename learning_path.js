@@ -137,40 +137,40 @@ document.addEventListener("DOMContentLoaded", () => {
   // Inline Knowledge Checks: answer → immediate feedback; correct reveals the
   // gated content that follows (retry allowed on incorrect). No scoring.
   container.addEventListener("click", e => {
-    const partHead = e.target.closest("[data-part-toggle]");
-    if (partHead && container.contains(partHead)) { togglePart(partHead, teamKey); return; }
+    const stepHead = e.target.closest("[data-step-toggle]");
+    if (stepHead && container.contains(stepHead)) { toggleStep(stepHead, teamKey); return; }
+    const finish = e.target.closest(".lp-finish-part");
+    if (finish && container.contains(finish)) { advanceFromStep(finish); return; }
     const check = e.target.closest(".kc-check");
     if (check && container.contains(check)) { checkKnowledgeAnswer(check); return; }
     const cont = e.target.closest(".kc-continue");
     if (cont && container.contains(cont)) {
-      if (cont.closest(".lp-part-item")) advanceFromPart(cont); else revealNextGate(cont);
+      if (cont.closest(".lp-part-item")) advanceFromStep(cont); else revealNextGate(cont);
       return;
     }
-    const pcont = e.target.closest(".lp-part-continue");
-    if (pcont && container.contains(pcont)) { advanceFromPart(pcont); return; }
-    const prev = e.target.closest(".kc-preview-all");
-    if (prev && container.contains(prev)) revealAllSegments(prev);
   });
 });
 
 /* ============================================================
-   LESSON PARTS (employee) — nested Module > Lesson > Parts flow
+   LESSON STEPS (employee) — Module > Lesson > Section content > Knowledge Check
    ------------------------------------------------------------
-   Each Part is a collapsible row (one open at a time). Part 1 is available;
-   later Parts stay locked until the previous Part's Knowledge Check is submitted
-   (a correct answer is NOT required — only a valid submission). After all Parts
-   are completed the Assignment + Final Activities are revealed and the lesson can
-   be marked complete. Part completion is persisted per employee in localStorage.
+   Each Part becomes TWO sequential STEPS: a CONTENT step (the section's Rich
+   Text / media, ending with "Finish This Part") and — when the Part has one — a
+   SEPARATE Knowledge Check step. Steps are collapsible rows, one open at a time,
+   gated linearly: a step unlocks only when the previous step is completed. A
+   content step completes on "Finish This Part"; a KC step completes on Continue
+   after a valid submission. A Part counts as completed only when its LAST step is
+   done (never merely because it was opened). Progress is persisted per employee.
    ============================================================ */
-function partsStorageKey(ctx) { return `lp:parts:${ctx.academyKey}:${ctx.moduleId}:${ctx.lessonId}:${ctx.employee}`; }
-function loadCompletedParts(ctx) {
-  try { const raw = localStorage.getItem(partsStorageKey(ctx)); return new Set(raw ? JSON.parse(raw) : []); }
+function stepsStorageKey(ctx) { return `lp:steps:${ctx.academyKey}:${ctx.moduleId}:${ctx.lessonId}:${ctx.employee}`; }
+function loadCompletedSteps(ctx) {
+  try { const raw = localStorage.getItem(stepsStorageKey(ctx)); return new Set(raw ? JSON.parse(raw) : []); }
   catch (e) { return new Set(); }
 }
-function saveCompletedPart(ctx, partId) {
-  const set = loadCompletedParts(ctx);
-  set.add(partId);
-  try { localStorage.setItem(partsStorageKey(ctx), JSON.stringify(Array.from(set))); } catch (e) {}
+function saveCompletedStep(ctx, stepId) {
+  const set = loadCompletedSteps(ctx);
+  set.add(stepId);
+  try { localStorage.setItem(stepsStorageKey(ctx), JSON.stringify(Array.from(set))); } catch (e) {}
   return set;
 }
 
@@ -209,7 +209,21 @@ function sectionTimeLabel(part) {
   return Math.max(1, Math.ceil(words / 200) + media) + " min";
 }
 
-/* Build the Parts rows for every lesson (one .lp-parts host per lesson). */
+/* Ordered steps for a lesson's Parts: each Part → a CONTENT step, plus a
+   separate KNOWLEDGE CHECK step when the Part has one. Display only. */
+function lessonSteps(parts) {
+  const steps = [];
+  (parts || []).forEach((p, i) => {
+    const title = sectionDisplayTitle(p);
+    steps.push({ id: p.id + ":content", kind: "content", partId: p.id, partIndex: i, part: p, title: title });
+    if (p.knowledgeCheck && (p.knowledgeCheck.type || p.knowledgeCheck.question)) {
+      steps.push({ id: p.id + ":kc", kind: "kc", partId: p.id, partIndex: i, part: p, title: "Knowledge Check — " + title });
+    }
+  });
+  return steps;
+}
+
+/* Build the step rows for every lesson (content step + separate KC step). */
 function renderLessonParts(root) {
   root.querySelectorAll(".lp-parts[data-lesson-parts]").forEach(host => {
     if (host.getAttribute("data-parts-built")) return;
@@ -217,12 +231,12 @@ function renderLessonParts(root) {
     const lessonId = host.getAttribute("data-lesson-parts");
     const lesson = (typeof loadLessons === "function" ? loadLessons() : []).find(l => l.id === lessonId);
     if (!lesson) return;
-    const parts = (typeof lessonParts === "function") ? lessonParts(lesson) : [];
+    const steps = lessonSteps((typeof lessonParts === "function") ? lessonParts(lesson) : []);
     const ctx = hostRevealContext(host);
-    const doneSet = loadCompletedParts(ctx);
-    // A lesson already marked complete shows every Part as completed.
+    const done = loadCompletedSteps(ctx);
+    // A lesson already marked complete shows every step as completed.
     if (typeof isLessonCompleted === "function" && isLessonCompleted(ctx.academyKey, lessonId)) {
-      parts.forEach(p => doneSet.add(p.id));
+      steps.forEach(s => done.add(s.id));
     }
 
     host.innerHTML = "";
@@ -230,39 +244,43 @@ function renderLessonParts(root) {
     prog.className = "lp-parts-progress";
     host.appendChild(prog);
 
-    parts.forEach((p, idx) => {
+    steps.forEach(step => {
       const item = document.createElement("div");
-      item.className = "lp-part-item";
-      item.setAttribute("data-part-id", p.id);
-      item.setAttribute("data-part-index", String(idx));
+      item.className = "lp-part-item lp-step-" + step.kind;
+      item.setAttribute("data-step-id", step.id);
+      item.setAttribute("data-step-kind", step.kind);
+      item.setAttribute("data-part-id", step.partId);
+      item.setAttribute("data-part-index", String(step.partIndex));
       const head = document.createElement("button");
       head.type = "button";
       head.className = "lp-part-head";
-      head.setAttribute("data-part-toggle", "");
+      head.setAttribute("data-step-toggle", "");
       head.setAttribute("aria-expanded", "false");
+      const timeHtml = step.kind === "content"
+        ? '<span class="lp-part-time">🕐 ' + escHtml(sectionTimeLabel(step.part)) + '</span>' : '';
       head.innerHTML =
         '<span class="lp-part-ico" aria-hidden="true"></span>' +
         '<span class="lp-part-main">' +
-          '<span class="lp-part-title">' + escHtml(sectionDisplayTitle(p)) + '</span>' +
-          '<span class="lp-part-time">🕐 ' + escHtml(sectionTimeLabel(p)) + '</span>' +
+          '<span class="lp-part-title">' + escHtml(step.title) + '</span>' + timeHtml +
         '</span>' +
         '<span class="lp-part-status"></span>' +
         '<span class="lp-part-caret" aria-hidden="true">▶</span>';
       const body = document.createElement("div");
       body.className = "lp-part-body cm-rendered"; // cm-rendered → inherit rich-text styling
       body.hidden = true;
-      fillPartBody(body, p);
+      if (step.kind === "content") fillContentStep(body, step.part);
+      else fillKcStep(body, step.part);
       item.appendChild(head);
       item.appendChild(body);
       host.appendChild(item);
     });
-    applyPartsGating(host, doneSet);
+    applyStepsGating(host, done);
   });
 }
 
-/* Render a Part's content blocks, then its Knowledge Check (or a plain Continue
-   button when the Part has no check). */
-function fillPartBody(bodyEl, part) {
+/* Content step body: the section's blocks, then "Finish This Part". The
+   Knowledge Check is NOT shown here — it is its own step after this one. */
+function fillContentStep(bodyEl, part) {
   (part.blocks || []).forEach(b => {
     const w = document.createElement("div");
     w.className = "lesson-block";
@@ -270,29 +288,44 @@ function fillPartBody(bodyEl, part) {
     w.innerHTML = blockToHtml(b);
     bodyEl.appendChild(w);
   });
-  const kc = part.knowledgeCheck;
-  if (kc && (kc.type || kc.question)) {
-    const kcEl = document.createElement("div");
-    kcEl.className = "kc-block lp-part-kc";
-    kcEl.setAttribute("data-kc", JSON.stringify(kc));
-    bodyEl.appendChild(kcEl);
-    enhanceKnowledgeCheck(kcEl);
-  } else {
-    const wrap = document.createElement("div");
-    wrap.className = "lp-part-actions";
-    wrap.innerHTML = '<button type="button" class="btn btn-primary lp-part-continue">Continue →</button>';
-    bodyEl.appendChild(wrap);
-  }
+  const wrap = document.createElement("div");
+  wrap.className = "lp-part-actions";
+  wrap.innerHTML = '<button type="button" class="btn btn-primary lp-finish-part">Finish This Part →</button>';
+  bodyEl.appendChild(wrap);
+}
+/* Knowledge Check step body: the interactive KC widget for this Part. */
+function fillKcStep(bodyEl, part) {
+  const kcEl = document.createElement("div");
+  kcEl.className = "kc-block lp-part-kc";
+  kcEl.setAttribute("data-kc", JSON.stringify(part.knowledgeCheck || {}));
+  bodyEl.appendChild(kcEl);
+  enhanceKnowledgeCheck(kcEl);
 }
 
-/* Recompute lock/available/completed state, status icons, progress, and whether
-   the after-Parts section (Assignment / Activities / complete) is revealed. */
-function applyPartsGating(host, doneSet) {
+/* A Part is completed only when its LAST step is done. Returns done/total Parts. */
+function lessonPartsProgress(host, done) {
+  const items = Array.from(host.querySelectorAll(".lp-part-item"));
+  const order = [], groups = {};
+  items.forEach(it => {
+    const pid = it.getAttribute("data-part-id");
+    if (!groups[pid]) { groups[pid] = []; order.push(pid); }
+    groups[pid].push(it);
+  });
+  let doneCount = 0;
+  order.forEach(pid => {
+    const arr = groups[pid];
+    if (done.has(arr[arr.length - 1].getAttribute("data-step-id"))) doneCount++;
+  });
+  return { done: doneCount, total: order.length };
+}
+
+/* Recompute lock/available/completed per STEP + icons + progress + after-Parts. */
+function applyStepsGating(host, done) {
   const items = Array.from(host.querySelectorAll(".lp-part-item"));
   items.forEach((item, idx) => {
-    const pid = item.getAttribute("data-part-id");
-    const isDone = doneSet.has(pid);
-    const prevDone = idx === 0 || doneSet.has(items[idx - 1].getAttribute("data-part-id"));
+    const sid = item.getAttribute("data-step-id");
+    const isDone = done.has(sid);
+    const prevDone = idx === 0 || done.has(items[idx - 1].getAttribute("data-step-id"));
     const locked = !isDone && !prevDone;
     item.classList.toggle("is-completed", isDone);
     item.classList.toggle("is-locked", locked);
@@ -304,23 +337,23 @@ function applyPartsGating(host, doneSet) {
     const st = item.querySelector(".lp-part-status");
     if (st) st.textContent = isDone ? "Completed" : (locked ? "Locked" : (item.classList.contains("is-open") ? "In Progress" : "Not Started"));
   });
-  updatePartsProgressAndAfter(host, doneSet);
+  updateStepsProgressAndAfter(host, done);
 }
 
-/* Update the "Parts completed X / Y" header + reveal the after-Parts section and
-   enable the complete button once every Part is done. */
-function updatePartsProgressAndAfter(host, doneSet) {
-  const items = Array.from(host.querySelectorAll(".lp-part-item"));
-  const total = items.length;
-  const done = items.filter(it => doneSet.has(it.getAttribute("data-part-id"))).length;
-  const pct = total ? Math.round((done / total) * 100) : 0;
+/* "Parts completed X / Y" (by Part, not step) + reveal after-Parts once every
+   step is done + enable the complete button. */
+function updateStepsProgressAndAfter(host, done) {
+  const p = lessonPartsProgress(host, done);
+  const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
   const prog = host.querySelector(".lp-parts-progress");
   if (prog) {
     prog.innerHTML =
-      '<span class="lp-parts-label">Parts completed: ' + done + ' / ' + total + '</span>' +
+      '<span class="lp-parts-label">Parts completed: ' + p.done + ' / ' + p.total + '</span>' +
       '<div class="lp-parts-bar"><span style="width:' + pct + '%"></span></div>';
   }
-  const allDone = total > 0 && done === total;
+  const allSteps = host.querySelectorAll(".lp-part-item").length;
+  const doneSteps = host.querySelectorAll(".lp-part-item.is-completed").length;
+  const allDone = allSteps > 0 && doneSteps === allSteps;
   const bodyRoot = host.closest(".lesson-acc-body");
   if (bodyRoot) {
     const after = bodyRoot.querySelector(".lp-after-parts");
@@ -330,9 +363,9 @@ function updatePartsProgressAndAfter(host, doneSet) {
   }
 }
 
-/* Open a Part (collapse the others in the same lesson — one open at a time).
-   Locked Parts do nothing. Opening marks the lesson In Progress. */
-function togglePart(head, teamKey) {
+/* Open a step (collapse the others — one open at a time). Locked steps do
+   nothing. Opening marks the lesson In Progress but never completes a step. */
+function toggleStep(head, teamKey) {
   const item = head.closest(".lp-part-item");
   if (!item || item.classList.contains("is-locked")) return;
   const host = head.closest(".lp-parts");
@@ -353,43 +386,34 @@ function togglePart(head, teamKey) {
       lessonItem.classList.add("is-inprogress");
     }
   }
-  applyPartsGating(host, loadCompletedParts(hostRevealContext(host)));
+  applyStepsGating(host, loadCompletedSteps(hostRevealContext(host)));
   if (willOpen) item.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-/* Mark a Part completed + persist, then refresh gating (unlocks the next Part). */
-function completePart(partItem) {
-  const host = partItem.closest(".lp-parts");
-  if (!host) return;
+/* Complete the current step (Finish This Part, or KC Continue), unlock + open
+   the next step — or reveal the Assignment / Activities after the last step. */
+function advanceFromStep(el) {
+  const stepItem = el.closest(".lp-part-item");
+  if (!stepItem) return;
+  const host = stepItem.closest(".lp-parts");
   const ctx = hostRevealContext(host);
-  const doneSet = saveCompletedPart(ctx, partItem.getAttribute("data-part-id"));
-  applyPartsGating(host, doneSet);
-}
+  const done = saveCompletedStep(ctx, stepItem.getAttribute("data-step-id"));
+  applyStepsGating(host, done);
 
-/* Continue from a Part: ensure it's complete, collapse it, then open the next
-   Part — or, if it was the last Part, reveal the Assignment / Final Activities. */
-function advanceFromPart(el) {
-  const partItem = el.closest(".lp-part-item");
-  if (!partItem) return;
-  const host = partItem.closest(".lp-parts");
-  const ctx = hostRevealContext(host);
-  const doneSet = saveCompletedPart(ctx, partItem.getAttribute("data-part-id"));
-  applyPartsGating(host, doneSet);
+  stepItem.classList.remove("is-open");
+  const b = stepItem.querySelector(".lp-part-body"); if (b) b.hidden = true;
+  const h = stepItem.querySelector(".lp-part-head"); if (h) h.setAttribute("aria-expanded", "false");
 
-  partItem.classList.remove("is-open");
-  const b = partItem.querySelector(".lp-part-body"); if (b) b.hidden = true;
-  const h = partItem.querySelector(".lp-part-head"); if (h) h.setAttribute("aria-expanded", "false");
-
-  let next = partItem.nextElementSibling;
+  let next = stepItem.nextElementSibling;
   while (next && !next.classList.contains("lp-part-item")) next = next.nextElementSibling;
-  if (next) {
+  if (next && !next.classList.contains("is-locked")) {
     next.classList.add("is-open");
     const nb = next.querySelector(".lp-part-body"); if (nb) nb.hidden = false;
     const nh = next.querySelector(".lp-part-head"); if (nh) nh.setAttribute("aria-expanded", "true");
-    applyPartsGating(host, loadCompletedParts(ctx));
+    applyStepsGating(host, loadCompletedSteps(ctx));
     next.scrollIntoView({ behavior: "smooth", block: "nearest" });
   } else {
-    updatePartsProgressAndAfter(host, loadCompletedParts(ctx));
+    updateStepsProgressAndAfter(host, loadCompletedSteps(ctx));
     const bodyRoot = host.closest(".lesson-acc-body");
     const after = bodyRoot ? bodyRoot.querySelector(".lp-after-parts") : null;
     if (after && !after.hidden) after.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -579,12 +603,11 @@ function checkKnowledgeAnswer(btn) {
 function revealContinue(block) {
   const cont = block.querySelector(".kc-continue");
   if (!cont) return;
-  const partItem = block.closest(".lp-part-item");
-  if (partItem) { // Part Knowledge Check answered → mark the Part complete + offer Continue.
-    completePart(partItem);
-    let next = partItem.nextElementSibling;
+  const stepItem = block.closest(".lp-part-item");
+  if (stepItem) { // KC step answered → just offer Continue (completion happens on Continue).
+    let next = stepItem.nextElementSibling;
     while (next && !next.classList.contains("lp-part-item")) next = next.nextElementSibling;
-    cont.textContent = next ? "Continue to the next Part →" : "Finish — show Assignment →";
+    cont.textContent = next ? "Continue →" : "Finish — show Assignment →";
     cont.hidden = false;
     return;
   }
@@ -729,34 +752,6 @@ async function submitDeliverableKc(block, kc, btn) {
   const explain = block.querySelector(".kc-explain"); if (explain) explain.hidden = false;
   revealContinue(block);
   if (typeof Track !== "undefined") Track.kcSubmitted({ academyKey: ctx.academyKey, moduleId: ctx.moduleId, lessonId: ctx.lessonId });
-}
-/* TEMP admin tool — "Preview Full Lesson". Shown ONLY to admins (never to
-   employees); lets a manager verify that every saved block exists by revealing
-   all segments at once, ungated. Does not touch the employee gating flow. */
-function adminPreviewButton(l) {
-  const isAdmin = (typeof Identity !== "undefined" && Identity.isAdmin && Identity.isAdmin());
-  if (!isAdmin) return "";
-  return `<div class="kc-admin-preview">
-      <button type="button" class="btn kc-preview-all">👁 Preview Full Lesson</button>
-      <span class="kc-admin-note">Admin only — unlocks & opens every Part to verify content.</span>
-    </div>`;
-}
-/* Admin preview: unlock + open every Part and reveal the after-Parts section
-   (and any legacy segments/gates) so a manager can verify all content ungated. */
-function revealAllSegments(btn) {
-  const item = btn.closest(".lesson-acc-item");
-  if (!item) return;
-  item.querySelectorAll(".lp-part-item").forEach(it => {
-    it.classList.remove("is-locked"); it.classList.add("is-available", "is-open");
-    const h = it.querySelector(".lp-part-head"); if (h) { h.disabled = false; h.setAttribute("aria-expanded", "true"); }
-    const b = it.querySelector(".lp-part-body"); if (b) b.hidden = false;
-  });
-  const after = item.querySelector(".lp-after-parts"); if (after) after.hidden = false;
-  // Legacy segment/gate lessons (if any still rendered that way).
-  item.querySelectorAll(".kc-segment").forEach(seg => { seg.hidden = false; seg.style.display = ""; });
-  item.querySelectorAll(".kc-gate").forEach(g => { g.hidden = false; g.style.display = ""; });
-  btn.disabled = true;
-  btn.textContent = "✓ Full lesson shown";
 }
 /* Reveal the content gated behind a KC when the employee clicks Continue.
    Block lessons reveal the next pre-built segment (a single hidden→shown toggle,
@@ -1044,10 +1039,8 @@ function lessonAccItem(l, i, academyKey, openByDefault) {
         </span>
       </button>
       <div class="lesson-acc-body">
-        ${adminPreviewButton(l)}
-        <!-- Lesson Parts (built by renderLessonParts): each Part is a collapsible
-             row with its content + one optional Knowledge Check; later Parts stay
-             locked until the previous Part's check is submitted. -->
+        <!-- Lesson steps (built by renderLessonParts): each Part is a Content step
+             + a separate Knowledge Check step; steps unlock one after another. -->
         <div class="lp-parts" data-lesson-parts="${escHtml(l.id)}"></div>
         <!-- Assignment + Final Activities appear only after all Parts are done. -->
         <div class="lp-after-parts" hidden>

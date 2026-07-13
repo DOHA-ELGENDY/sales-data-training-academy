@@ -27,6 +27,7 @@ window.LessonBlocks = (function () {
   var editors = new Map();     // blockId -> { kind: "rte"|"callout"|"kc", ed }
   var excludeTypes = [];       // block types hidden from the Add menu (e.g. "knowledge" in Parts mode)
   var docCloseBound = false;   // add the document-level menu-close listener only once
+  var activeId = null;         // the block the user is currently on — new blocks insert AFTER it
 
   function nowISO() { return new Date().toISOString(); }
   function esc(s) {
@@ -310,18 +311,30 @@ window.LessonBlocks = (function () {
     scrollToBlock(copy.id);
   }
   function deleteBlock(id) {
-    var b = findBlock(id);
-    var meta = b ? blockTypeMeta(b.type) : null;
-    if (!confirm("حذف بلوك" + (meta ? " (" + meta.label + ")" : "") + "؟ لا يمكن التراجع.")) return;
     syncEditorsToState();
+    var b = findBlock(id);
+    // Cancel: a freshly-added, still-empty block is removed cleanly (no dialog).
+    // A block with content asks for confirmation so real work isn't lost.
+    if (!isBlockEmpty(b)) {
+      var meta = b ? blockTypeMeta(b.type) : null;
+      if (!confirm("حذف بلوك" + (meta ? " (" + meta.label + ")" : "") + "؟ لا يمكن التراجع.")) return;
+    }
     state = state.filter(function (x) { return x.id !== id; });
+    if (activeId === id) activeId = null;
     reindex(); render();
   }
   function addBlock(type) {
     syncEditorsToState();
     var b = newBlock(type);
-    state.push(b); reindex(); render();
+    // Insert immediately AFTER the block the user is on (the "selected position"),
+    // preserving the order of every existing block. Falls back to the end only
+    // when no block is active yet.
+    var at = activeId ? state.findIndex(function (x) { return x.id === activeId; }) : -1;
+    if (at >= 0) state.splice(at + 1, 0, b); else state.push(b);
+    activeId = b.id;
+    reindex(); render();
     scrollToBlock(b.id);
+    focusBlock(b.id); // open in edit mode immediately (cursor in the new block)
   }
   function reindex() { state.forEach(function (b, i) { b.order = i; }); }
   function scrollToBlock(id) {
@@ -329,8 +342,37 @@ window.LessonBlocks = (function () {
     var card = listEl.querySelector('.blk-card[data-block-id="' + cssEsc(id) + '"]');
     if (card) card.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
+  /* Put the cursor in a block's editor (or its first field) so it is editable at
+     once, without a page refresh. */
+  function focusBlock(id) {
+    var rec = editors.get(id);
+    if (rec && rec.ed && rec.ed.focus) { try { rec.ed.focus(); return; } catch (e) {} }
+    if (!listEl) return;
+    var card = listEl.querySelector('.blk-card[data-block-id="' + cssEsc(id) + '"]');
+    if (!card) return;
+    var f = card.querySelector('[contenteditable="true"], input, textarea, select');
+    if (f) { try { f.focus(); } catch (e) {} }
+  }
+  /* A block that has no author content yet — used so "Cancel" (its ✕) can remove
+     a freshly-added, unfilled block cleanly, with no confirmation dialog. */
+  function blockText(html) { var t = document.createElement("div"); t.innerHTML = html || ""; return (t.textContent || "").trim(); }
+  function isBlockEmpty(b) {
+    if (!b) return true;
+    var d = b.data || {};
+    switch (b.type) {
+      case "richtext": case "summary": return !blockText(d.html);
+      case "image": case "file": case "youtube": return !d.url;
+      case "resource": return !(d.title || d.url || d.description);
+      case "callout-info": case "callout-tip": case "callout-warning": return !(d.title || blockText(d.body));
+      case "knowledge": return !(d.question || (Array.isArray(d.choices) && d.choices.some(function (c) { return String(c).trim(); })));
+      case "divider": return true;
+      default: return !String(blockToHtml(b)).trim();
+    }
+  }
 
   function onListClick(e) {
+    var onCard = e.target.closest(".blk-card");
+    if (onCard) activeId = onCard.getAttribute("data-block-id"); // clicking a block selects it
     var btn = e.target.closest("[data-blk]");
     if (!btn || !listEl.contains(btn)) return;
     var card = btn.closest(".blk-card");
@@ -373,7 +415,13 @@ window.LessonBlocks = (function () {
       '</div>';
     listEl = mount.querySelector('[data-role="list"]');
     addMenuEl = mount.querySelector('[data-role="add-menu"]');
+    activeId = null;
     listEl.addEventListener("click", onListClick);
+    // Remember which block the user is on, so a new block inserts right after it.
+    listEl.addEventListener("focusin", function (e) {
+      var card = e.target.closest(".blk-card");
+      if (card) activeId = card.getAttribute("data-block-id");
+    });
     mount.querySelector('[data-role="add-btn"]').addEventListener("click", function () { toggleAddMenu(); });
     addMenuEl.addEventListener("click", function (e) {
       var item = e.target.closest("[data-add-type]");
@@ -392,11 +440,12 @@ window.LessonBlocks = (function () {
     render();
   }
   function load(blocks) {
+    activeId = null;
     state = (Array.isArray(blocks) ? blocks : []).map(normalizeBlock);
     reindex(); render();
   }
-  function reset() { state = [normalizeBlock(newBlock("richtext"), 0)]; render(); }
-  function clear() { state = []; render(); }
+  function reset() { activeId = null; state = [normalizeBlock(newBlock("richtext"), 0)]; render(); }
+  function clear() { activeId = null; state = []; render(); }
   function getBlocks() {
     syncEditorsToState();
     reindex();

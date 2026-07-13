@@ -1062,6 +1062,45 @@ a.nav-item { color: #cdd8e6; }
 .lp-after-parts { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); animation: lessonIn .25s var(--ease) both; }
 .lp-after-parts[hidden] { display: none; }
 
+/* ---- Final lesson steps: Assignment → Final Activities → Lesson Completed ----
+   Own gated cards in the lesson nav (mirror .lp-part-item, but a distinct class
+   so the parts gating and the tracking observer never treat them as sections). */
+.lp-final-steps { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); display: flex; flex-direction: column; gap: 10px; }
+.lp-final-step {
+  border: 1px solid var(--border); border-radius: 12px; background: var(--surface);
+  overflow: hidden; transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
+}
+.lp-final-step.is-available:hover { border-color: #cdd8ea; }
+.lp-final-step.is-open { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,.08); }
+.lp-final-step.is-locked { background: #f8f9fb; }
+.lp-final-step.is-completed { border-color: #cdebd7; }
+.lp-final-step.is-available .lp-part-ico { background: #e8effb; color: var(--primary); }
+.lp-final-step.is-completed .lp-part-ico { background: #e7f7ec; color: var(--success); }
+.lp-final-step.is-locked .lp-part-ico { background: #eceff3; color: #9aa4b2; }
+.lp-final-step.is-locked .lp-part-title { color: var(--muted); }
+.lp-final-step.is-available .lp-part-status { background: #e8effb; color: var(--primary); }
+.lp-final-step.is-completed .lp-part-status { background: #e7f7ec; color: #0a7c2f; }
+.lp-final-step.is-locked .lp-part-status { background: #eceff3; }
+.lp-final-step.is-open .lp-part-caret { transform: rotate(90deg); color: var(--primary); }
+/* Assignment card available → amber accent so 📝 reads as the actionable step. */
+.lp-final-assignment.is-available .lp-part-ico { background: #fff4e5; color: #b45309; }
+
+/* Assignment "page" (inside the assignment card) — only assignment fields. */
+.lp-asg-title { font-size: 16px; font-weight: 800; margin: 4px 0 6px; color: var(--text); }
+.lp-asg-field { margin: 12px 0; }
+.lp-asg-field > h6 { margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--primary); }
+.lp-asg-meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
+.lp-asg-submit-region { margin-top: 14px; }
+.lp-act-actions { margin-top: 14px; }
+
+/* Read-only "Assignment Submitted" status card. */
+.lp-status-card { border: 1px solid #cdebd7; background: #f4fbf6; border-radius: 12px; padding: 16px 18px; }
+.lp-status-card > h5 { margin: 0 0 12px; font-size: 15px; color: #0a7c2f; }
+.lp-status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; }
+@media (max-width: 560px) { .lp-status-grid { grid-template-columns: 1fr; } }
+.lp-status-grid .k { font-size: 11px; text-transform: uppercase; letter-spacing: .3px; color: var(--muted); font-weight: 700; margin-bottom: 2px; }
+.lp-status-grid .v { font-size: 14px; color: var(--text); font-weight: 600; }
+
 /* Knowledge Check step row — reads as an indented sub-step under its section */
 .lp-step-kc { margin-inline-start: 22px; }
 .lp-step-kc .lp-part-title { font-weight: 600; font-size: 13.5px; }

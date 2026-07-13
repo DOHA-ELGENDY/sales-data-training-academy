@@ -137,6 +137,14 @@ document.addEventListener("DOMContentLoaded", () => {
   // Inline Knowledge Checks: answer → immediate feedback; correct reveals the
   // gated content that follows (retry allowed on incorrect). No scoring.
   container.addEventListener("click", e => {
+    // Final steps (Assignment / Final Activities / Lesson Completed) — their own
+    // toggles/actions, kept separate from the section/KC step handlers below.
+    const finalHead = e.target.closest("[data-final-toggle]");
+    if (finalHead && container.contains(finalHead)) { toggleFinalStep(finalHead); return; }
+    const actFinish = e.target.closest(".lp-act-finish");
+    if (actFinish && container.contains(actFinish)) { finishActivities(actFinish); return; }
+    const resubBtn = e.target.closest(".lp-resubmit");
+    if (resubBtn && container.contains(resubBtn)) { resubmitAssignment(resubBtn); return; }
     const stepHead = e.target.closest("[data-step-toggle]");
     if (stepHead && container.contains(stepHead)) { toggleStep(stepHead, teamKey); return; }
     const finish = e.target.closest(".lp-finish-part");
@@ -351,16 +359,11 @@ function updateStepsProgressAndAfter(host, done) {
       '<span class="lp-parts-label">Parts completed: ' + p.done + ' / ' + p.total + '</span>' +
       '<div class="lp-parts-bar"><span style="width:' + pct + '%"></span></div>';
   }
-  const allSteps = host.querySelectorAll(".lp-part-item").length;
-  const doneSteps = host.querySelectorAll(".lp-part-item.is-completed").length;
-  const allDone = allSteps > 0 && doneSteps === allSteps;
+  // The section / Knowledge Check steps drive the parts bar above; once every
+  // one is done the Assignment step unlocks. ALL final-step gating lives in
+  // applyFinalGating so the section flow itself is never altered.
   const bodyRoot = host.closest(".lesson-acc-body");
-  if (bodyRoot) {
-    const after = bodyRoot.querySelector(".lp-after-parts");
-    if (after) after.hidden = !allDone;
-    const btn = bodyRoot.querySelector(".lesson-complete-btn");
-    if (btn && !btn.classList.contains("is-done")) btn.disabled = !allDone;
-  }
+  if (bodyRoot) applyFinalGating(bodyRoot);
 }
 
 /* Open a step (collapse the others — one open at a time). Locked steps do
@@ -414,9 +417,9 @@ function advanceFromStep(el) {
     next.scrollIntoView({ behavior: "smooth", block: "nearest" });
   } else {
     updateStepsProgressAndAfter(host, loadCompletedSteps(ctx));
+    // Last section / Knowledge Check done → open the newly-unlocked Assignment step.
     const bodyRoot = host.closest(".lesson-acc-body");
-    const after = bodyRoot ? bodyRoot.querySelector(".lp-after-parts") : null;
-    if (after && !after.hidden) after.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    if (bodyRoot) openFirstAvailableFinal(bodyRoot);
   }
 }
 
@@ -818,12 +821,10 @@ function handleAssignmentSubmit(form, teamKey) {
   if (btn) btn.disabled = true;
   msg.style.color = "#6b7280";
   msg.textContent = "Submitting…";
-  pushSubmission(sub).then(ok => {
-    form.reset();
-    if (btn) btn.disabled = false;
-    msg.style.color = "#16a34a";
-    msg.textContent = ok ? "تم إرسال التسليم ✓" : "تم الحفظ محليًا — هيتزامن أول ما النت يرجع ✓";
-    setTimeout(() => { if (msg.textContent.indexOf("✓") >= 0) msg.textContent = ""; }, 5000);
+  pushSubmission(sub).then(function () {
+    // Optimistically cached even when offline — reflect "Submitted" immediately
+    // (it will sync when the connection returns) and unlock Final Activities.
+    onAssignmentSubmitted(form, sub);
   });
   if (typeof Track !== "undefined") Track.assignmentSubmitted({ academyKey: teamKey, moduleId: sub.moduleId, lessonId: sub.lessonId });
 }
@@ -1017,6 +1018,265 @@ function moduleProgressMarkup(done, total) {
     <div class="mod-bar"><span style="width:${pct}%"></span></div>`;
 }
 
+/* ============================================================
+   FINAL LESSON STEPS — Assignment → Final Activities → Lesson Completed
+   ------------------------------------------------------------
+   Each is its OWN gated card in the lesson navigation, revealed IN ORDER after
+   the last Knowledge Check:
+     • Assignment unlocks once every section + KC step is done.
+     • Final Activities unlock only after a successful Assignment submission.
+     • Lesson Completed unlocks only after the Activities are finished.
+   This never touches the section/KC steps in .lp-parts, their gating, or the
+   Continue logic — those are untouched. Cards use the .lp-final-step class (NOT
+   .lp-part-item) so neither the parts gating nor the tracking observer treat
+   them as sections. Existing lessons need no rebuilding: a card is emitted only
+   when the lesson actually has that piece.
+   ============================================================ */
+
+/* The employee's latest submission for a lesson, read from the local
+   submissions cache (which mirrors Supabase) so the "Submitted" state resumes. */
+function currentSubmission(lessonId) {
+  var ident = (typeof Identity !== "undefined") ? Identity.get() : null;
+  var empId = ident ? (ident.employeeId || ident.employeeName || "") : "";
+  var name = ident ? (ident.employeeName || "") : "";
+  var list = (typeof loadSubmissionsCache === "function" ? loadSubmissionsCache() : [])
+    .filter(function (s) {
+      return s && s.lessonId === lessonId &&
+        (!empId || s.employeeId === empId || (name && s.employeeName === name));
+    });
+  list.sort(function (a, b) { return new Date(b.createdAt || b.timestamp || 0) - new Date(a.createdAt || a.timestamp || 0); });
+  return list[0] || null;
+}
+
+function fmtSubmissionDate(iso) {
+  if (!iso) return "—";
+  try { return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }); }
+  catch (e) { return "—"; }
+}
+function submissionTypeLabel(sub, asg) {
+  if (sub && sub.submissionType) return sub.submissionType;
+  if (sub && sub.submissionLink) return "Document Link";
+  if (sub && sub.textAnswer) return "Text";
+  return (asg && asg.submissionType) || "—";
+}
+
+/* The Assignment "page" — ONLY the assignment's own fields (never lesson
+   content). Renders whatever the Content Manager authored. */
+function assignmentPageMarkup(asg) {
+  if (!asg) return "";
+  var field = function (label, html) {
+    return html ? '<div class="lp-asg-field"><h6>' + escHtml(label) + '</h6><div class="cm-rendered">' + html + '</div></div>' : "";
+  };
+  var chips = [
+    asg.estTime ? '<span class="meta-chip">⏱ ' + escHtml(asg.estTime) + '</span>' : "",
+    asg.submissionType ? '<span class="meta-chip">📤 ' + escHtml(asg.submissionType) + '</span>' : "",
+    asg.minScore ? '<span class="meta-chip">✅ Min score ' + escHtml(asg.minScore) + '</span>' : ""
+  ].filter(Boolean).join("");
+  return '' +
+    '<div class="lp-asg-page">' +
+      '<h4 class="lp-asg-title">' + (asg.title ? escHtml(asg.title) : "Lesson Assignment") + '</h4>' +
+      (asg.objective ? field("Objective", renderRichText(asg.objective)) : "") +
+      (asg.instructions ? field("Instructions", renderRichText(asg.instructions)) : "") +
+      (asg.deliverables ? field("Deliverables", renderRichText(asg.deliverables)) : "") +
+      (chips ? '<div class="lp-asg-meta">' + chips + '</div>' : "") +
+    '</div>';
+}
+
+/* Read-only "Assignment Submitted" status card shown after submission. */
+function submissionStatusCard(sub, asg) {
+  var date = sub ? fmtSubmissionDate(sub.createdAt || sub.timestamp) : "—";
+  var type = submissionTypeLabel(sub, asg);
+  var status = (sub && sub.status) || "Pending Review";
+  var hasFeedback = sub && (sub.score || sub.feedback || sub.reviewedBy);
+  var waiting = !hasFeedback && /pending|review|submitted/i.test(status);
+  var row = function (k, v) { return '<div><div class="k">' + escHtml(k) + '</div><div class="v">' + v + '</div></div>'; };
+  var feedback = "";
+  if (hasFeedback) {
+    feedback =
+      (sub.score ? row("Score", escHtml(String(sub.score))) : "") +
+      (sub.feedback ? row("Feedback", escHtml(sub.feedback)) : "") +
+      (sub.reviewedBy ? row("Reviewed By", escHtml(sub.reviewedBy)) : "");
+  }
+  var allowResubmit = asg && (asg.allowResubmit === true || asg.allowResubmit === "true");
+  return '' +
+    '<div class="lp-status-card">' +
+      '<h5>✅ Assignment Submitted</h5>' +
+      '<div class="lp-status-grid">' +
+        row("Submission Date", escHtml(date)) +
+        row("Submission Type", escHtml(type)) +
+        row("Review Status", escHtml(waiting ? "Waiting for Review" : status)) +
+        feedback +
+      '</div>' +
+      (allowResubmit ? '<div style="margin-top:14px"><button type="button" class="btn btn-light lp-resubmit">Resubmit Assignment</button></div>' : "") +
+    '</div>';
+}
+
+/* A single final-step card (starts locked; applyFinalGating sets its real state). */
+function finalStepCard(kind, title, bodyHtml) {
+  return '' +
+    '<div class="lp-final-step lp-final-' + kind + ' is-locked" data-final="' + kind + '">' +
+      '<button type="button" class="lp-part-head" data-final-toggle aria-expanded="false" aria-disabled="true" disabled>' +
+        '<span class="lp-part-ico" aria-hidden="true">🔒</span>' +
+        '<span class="lp-part-main"><span class="lp-part-title">' + escHtml(title) + '</span></span>' +
+        '<span class="lp-part-status">Locked</span>' +
+        '<span class="lp-part-caret" aria-hidden="true">▶</span>' +
+      '</button>' +
+      '<div class="lp-part-body" hidden>' + bodyHtml + '</div>' +
+    '</div>';
+}
+
+/* Build the Assignment → Activities → Completed cards for a lesson. */
+function finalStepsMarkup(l, academyKey, completed) {
+  var asg = (l && l.assignment && l.assignment.status === "Published") ? l.assignment : null;
+  var acts = (typeof publishedActivities === "function") ? publishedActivities(l) : [];
+  var html = "";
+
+  if (asg) {
+    var sub = currentSubmission(l.id);
+    var region = (sub || completed) ? submissionStatusCard(sub, asg) : submissionForm(l);
+    var body = assignmentPageMarkup(asg) + '<div class="lp-asg-submit-region" data-asg-region>' + region + '</div>';
+    html += finalStepCard("assignment", "📝 " + (asg.title || "Lesson Assignment"), body);
+  }
+  if (acts.length) {
+    var rows = acts.map(function (a, i) { return activityHtml(a, i, academyKey); }).join("");
+    var abody = '<div class="lp-activities-body">' + rows + '</div>' +
+      '<div class="lp-act-actions"><button type="button" class="btn btn-primary lp-act-finish">Finish Activities →</button></div>';
+    html += finalStepCard("activities", "Final Activities", abody);
+  }
+  html += finalStepCard("complete", "Lesson Completed",
+    '<div class="lesson-complete">' +
+      '<button type="button" class="btn ' + (completed ? "is-done" : "btn-primary") + ' lesson-complete-btn" data-complete="' + escHtml(l.id) + '" disabled>' +
+        (completed ? "✓ Lesson Completed" : "Mark Lesson as Completed") +
+      '</button>' +
+    '</div>');
+  return html;
+}
+
+/* Lesson context for the final steps (reuses the parts host context helper). */
+function finalCtxOf(bodyRoot) {
+  var host = bodyRoot.querySelector(".lp-parts");
+  return hostRevealContext(host || bodyRoot);
+}
+
+/* Recompute lock / available / completed for the three final cards. */
+function applyFinalGating(bodyRoot) {
+  var wrap = bodyRoot.querySelector(".lp-final-steps");
+  if (!wrap) return;
+  var ctx = finalCtxOf(bodyRoot);
+  var lesson = (typeof loadLessons === "function" ? loadLessons() : []).find(function (l) { return l.id === ctx.lessonId; }) || {};
+  var completedLesson = (typeof isLessonCompleted === "function") && isLessonCompleted(ctx.academyKey, ctx.lessonId);
+
+  var host = bodyRoot.querySelector(".lp-parts");
+  var partItems = host ? Array.prototype.slice.call(host.querySelectorAll(".lp-part-item")) : [];
+  var partsDone = partItems.length === 0 ? true : partItems.every(function (it) { return it.classList.contains("is-completed"); });
+
+  var asgExists = !!(lesson.assignment && lesson.assignment.status === "Published");
+  var actsExist = ((typeof publishedActivities === "function") ? publishedActivities(lesson) : []).length > 0;
+  var submitted = completedLesson || !!currentSubmission(ctx.lessonId);
+  var actsDone = completedLesson || loadCompletedSteps(ctx).has("final:activities");
+  var asgSatisfied = !asgExists || submitted;
+  var actsSatisfied = !actsExist || actsDone;
+
+  var setCard = function (kind, state, ico, status) {
+    var card = wrap.querySelector('.lp-final-step[data-final="' + kind + '"]');
+    if (!card) return;
+    card.classList.toggle("is-completed", state === "completed");
+    card.classList.toggle("is-locked", state === "locked");
+    card.classList.toggle("is-available", state === "available");
+    if (state === "locked") {
+      card.classList.remove("is-open");
+      var b = card.querySelector(".lp-part-body"); if (b) b.hidden = true;
+    }
+    var head = card.querySelector(".lp-part-head");
+    if (head) { head.disabled = state === "locked"; head.setAttribute("aria-disabled", state === "locked" ? "true" : "false"); }
+    var ic = card.querySelector(".lp-part-ico"); if (ic) ic.textContent = ico;
+    var st = card.querySelector(".lp-part-status"); if (st) st.textContent = status;
+  };
+
+  if (asgExists) {
+    if (submitted) setCard("assignment", "completed", "✓", "Submitted");
+    else if (partsDone) setCard("assignment", "available", "📝", "Start");
+    else setCard("assignment", "locked", "🔒", "Locked");
+  }
+  if (actsExist) {
+    if (actsDone) setCard("activities", "completed", "✓", "Completed");
+    else if (partsDone && asgSatisfied) setCard("activities", "available", "○", "Start");
+    else setCard("activities", "locked", "🔒", "Locked");
+  }
+  var completeCard = wrap.querySelector('.lp-final-step[data-final="complete"]');
+  if (completeCard) {
+    var btn = completeCard.querySelector(".lesson-complete-btn");
+    if (completedLesson) {
+      setCard("complete", "completed", "✓", "Completed");
+      if (btn) { btn.disabled = true; btn.classList.remove("btn-primary"); btn.classList.add("is-done"); btn.textContent = "✓ Lesson Completed"; }
+    } else if (partsDone && asgSatisfied && actsSatisfied) {
+      setCard("complete", "available", "○", "Ready");
+      if (btn) btn.disabled = false;
+    } else {
+      setCard("complete", "locked", "🔒", "Locked");
+      if (btn) btn.disabled = true;
+    }
+  }
+}
+
+/* Toggle a final card open/closed (one open at a time, within the final list). */
+function toggleFinalStep(head) {
+  var card = head.closest(".lp-final-step");
+  if (!card || card.classList.contains("is-locked")) return;
+  var wrap = card.closest(".lp-final-steps");
+  var willOpen = !card.classList.contains("is-open");
+  if (wrap) wrap.querySelectorAll(".lp-final-step.is-open").forEach(function (it) {
+    it.classList.remove("is-open");
+    var b = it.querySelector(".lp-part-body"); if (b) b.hidden = true;
+    var h = it.querySelector(".lp-part-head"); if (h) h.setAttribute("aria-expanded", "false");
+  });
+  if (willOpen) {
+    card.classList.add("is-open");
+    var b = card.querySelector(".lp-part-body"); if (b) b.hidden = false;
+    head.setAttribute("aria-expanded", "true");
+    card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+}
+
+/* Open the first available (unlocked, not-yet-completed) final card. */
+function openFirstAvailableFinal(bodyRoot) {
+  applyFinalGating(bodyRoot);
+  var wrap = bodyRoot.querySelector(".lp-final-steps");
+  if (!wrap) return;
+  var card = wrap.querySelector(".lp-final-step.is-available");
+  if (card) { var head = card.querySelector(".lp-part-head"); if (head) toggleFinalStep(head); }
+}
+
+/* Employee finished the Final Activities step → mark it done, unlock completion. */
+function finishActivities(btn) {
+  var bodyRoot = btn.closest(".lesson-acc-body");
+  if (!bodyRoot) return;
+  saveCompletedStep(finalCtxOf(bodyRoot), "final:activities");
+  openFirstAvailableFinal(bodyRoot);
+}
+
+/* Assignment submitted → swap the form for the read-only status card and unlock
+   the next step. */
+function onAssignmentSubmitted(form, sub) {
+  var bodyRoot = form.closest(".lesson-acc-body");
+  var region = form.closest("[data-asg-region]");
+  if (region) {
+    var lessonId = bodyRoot ? finalCtxOf(bodyRoot).lessonId : form.getAttribute("data-lesson-id");
+    var lesson = (typeof loadLessons === "function" ? loadLessons() : []).find(function (l) { return l.id === lessonId; }) || {};
+    region.innerHTML = submissionStatusCard(sub, lesson.assignment || {});
+  }
+  if (bodyRoot) openFirstAvailableFinal(bodyRoot);
+}
+
+/* Employee chose to resubmit — restore the submission form. */
+function resubmitAssignment(btn) {
+  var region = btn.closest("[data-asg-region]");
+  var item = btn.closest(".lesson-acc-item");
+  var lessonId = item ? item.getAttribute("data-lesson-id") : "";
+  var lesson = (typeof loadLessons === "function" ? loadLessons() : []).find(function (l) { return l.id === lessonId; }) || {};
+  if (region) region.innerHTML = submissionForm(lesson);
+}
+
 /* Lessons as accordions inside a module — like the Module accordion. Each
    lesson expands/collapses; only one is open at a time (the first is open by
    default). Open shows Content, Assignment, Activities, and the complete action. */
@@ -1040,19 +1300,14 @@ function lessonAccItem(l, i, academyKey, openByDefault) {
       </button>
       <div class="lesson-acc-body">
         <!-- Lesson steps (built by renderLessonParts): each Part is a Content step
-             + a separate Knowledge Check step; steps unlock one after another. -->
+             + a separate Knowledge Check step; steps unlock one after another.
+             UNCHANGED — the section / Knowledge Check flow is identical. -->
         <div class="lp-parts" data-lesson-parts="${escHtml(l.id)}"></div>
-        <!-- Assignment + Final Activities appear only after all Parts are done. -->
-        <div class="lp-after-parts" hidden>
-          ${assignmentBlock(l.assignment)}
-          ${submissionForm(l)}
-          ${activitiesBlock(l, academyKey)}
-        </div>
-        <div class="lesson-complete">
-          <button type="button" class="btn ${completed ? "is-done" : "btn-primary"} lesson-complete-btn"
-                  data-complete="${escHtml(l.id)}" disabled>
-            ${completed ? "✓ Lesson Completed" : "Mark Lesson as Completed"}
-          </button>
+        <!-- Assignment → Final Activities → Lesson Completed: each is its OWN gated
+             step/card in the lesson navigation, unlocked in order by
+             applyFinalGating after the last Knowledge Check. -->
+        <div class="lp-final-steps" data-final-steps="${escHtml(l.id)}">
+          ${finalStepsMarkup(l, academyKey, completed)}
         </div>
       </div>
     </div>`;

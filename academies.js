@@ -295,6 +295,7 @@ function applyWrite(p) {
     case "deleteLesson": return SB.deleteLesson(p.id);
     case "bulkSave": return SB.bulkUpsert(p.modules || [], p.lessons || []);
     case "insertSubmission": return SB.upsertSubmission(p.sub);
+    case "insertSubmissionFull": return upsertSubmissionFull(p.sub);
     case "updateSubmission": return SB.updateSubmission(p.id, p.patch);
     default: return Promise.resolve();
   }
@@ -345,7 +346,59 @@ function pushSubmission(sub) {
   const cache = loadSubmissionsCache().filter(s => s.id !== sub.id);
   cache.unshift(sub);
   saveSubmissionsCache(cache);
-  return postContent({ action: "insertSubmission", sub });
+  // Full-row upsert so file metadata (file_url/name/type/size) persists too. It
+  // tolerates a not-yet-migrated table by dropping unknown columns, so plain
+  // text/link submissions keep working before assignment_submission_update_schema.sql.
+  return postContent({ action: "insertSubmissionFull", sub });
+}
+
+/* Map a submission object → the submissions table row (snake_case columns). */
+function submissionRowFull(sub) {
+  return {
+    id: sub.id,
+    academy_key: sub.academyKey || "",
+    module_id: sub.moduleId || "",
+    module_title: sub.moduleTitle || "",
+    lesson_id: sub.lessonId || "",
+    lesson_title: sub.lessonTitle || "",
+    assignment_id: sub.assignmentId || "",
+    assignment_title: sub.assignmentTitle || "",
+    employee_id: sub.employeeId || "",
+    employee_name: sub.employeeName || "",
+    team: sub.team || "",
+    submission_link: sub.submissionLink || "",
+    text_answer: sub.textAnswer || "",
+    notes: sub.notes || "",
+    status: sub.status || "Pending Review",
+    file_url: sub.file_url || null,
+    file_name: sub.file_name || null,
+    file_type: sub.file_type || null,
+    file_size: (sub.file_size != null ? sub.file_size : null),
+    created_at: sub.timestamp || sub.createdAt || new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+}
+
+/* Upsert a submission with the FULL row, dropping any column the table doesn't
+   have yet (one per retry) so file/review columns are safe before the migration
+   is applied. Throws on any non-column error so postContent queues a retry. */
+async function upsertSubmissionFull(sub) {
+  const base = SUPABASE_URL.replace(/\/+$/, "") + "/rest/v1/submissions?on_conflict=id";
+  const headers = {
+    "apikey": SUPABASE_ANON_KEY, "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+    "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates,return=minimal"
+  };
+  let row = submissionRowFull(sub);
+  for (let i = 0; i < 12; i++) {
+    const res = await fetch(base, { method: "POST", headers, body: JSON.stringify(row) });
+    if (res.ok) return true;
+    let txt = ""; try { txt = await res.text(); } catch (e) {}
+    const mm = txt.match(/'([A-Za-z0-9_]+)' column/) || txt.match(/column "?([A-Za-z0-9_]+)"?\s+.*does not exist/i);
+    const col = mm ? mm[1] : null;
+    if (col && (col in row)) { delete row[col]; continue; }  // table lacks this column yet
+    throw new Error("submissions upsert " + res.status + " " + txt);
+  }
+  throw new Error("submissions upsert: too many missing columns");
 }
 
 /* Manager updates a submission's review fields. */

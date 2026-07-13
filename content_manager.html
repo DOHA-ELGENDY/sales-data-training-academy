@@ -10,7 +10,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Content Manager · Sales Data</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="styles.css?v=menu-fix" />
+  <link rel="stylesheet" href="styles.css?v=asg-2" />
   <script src="identity.js"></script>
 </head>
 <body>
@@ -102,13 +102,10 @@
         <span class="form-msg" id="cmIoMsg" role="status" aria-live="polite"></span>
       </div>
 
-      <!-- Tabs (only Modules is active for now) -->
+      <!-- Tabs — only the working pages (Modules, Lesson Builder). -->
       <div class="cm-tabs reveal" role="tablist" aria-label="Content Manager sections">
         <button class="cm-tab active" data-tab="modules" role="tab" aria-selected="true">Modules</button>
-        <button class="cm-tab" data-tab="lessons" role="tab" aria-selected="false">Lessons / Content</button>
-        <button class="cm-tab" disabled>Assignments <span class="cm-soon">Soon</span></button>
-        <button class="cm-tab" disabled>Videos <span class="cm-soon">Soon</span></button>
-        <button class="cm-tab" disabled>Settings <span class="cm-soon">Soon</span></button>
+        <button class="cm-tab" data-tab="lessons" role="tab" aria-selected="false">Lesson Builder</button>
       </div>
 
       <!-- ===== MODULES TAB ===== -->
@@ -236,7 +233,7 @@
                     placeholder="اكتب تعليمات الـ Assignment…&#10;# عنوان&#10;- نقطة&#10;1. خطوة"></textarea>
                 </div>
                 <div class="field field-full">
-                  <label for="aDeliverables">Deliverables</label>
+                  <label for="aDeliverables">Submission Requirements</label>
                   <textarea id="aDeliverables" rows="3" placeholder="اللي المتدرب هيسلمه (ملف، لينك، إجابات…)"></textarea>
                 </div>
                 <div class="field">
@@ -250,9 +247,19 @@
                 <div class="field">
                   <label for="aSubmission">Submission Type</label>
                   <select id="aSubmission">
-                    <option value="File Link">File Link</option>
                     <option value="Text Answer">Text Answer</option>
-                    <option value="Both">Both</option>
+                    <option value="Document Link">Document Link</option>
+                    <option value="File Upload">File Upload</option>
+                    <option value="Text Answer OR Document Link">Text Answer OR Document Link</option>
+                    <option value="Document Link OR File Upload">Document Link OR File Upload</option>
+                    <option value="Any Submission Method">Any Submission Method</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="aResubmit">Allow Resubmission</label>
+                  <select id="aResubmit">
+                    <option value="No">No</option>
+                    <option value="Yes">Yes</option>
                   </select>
                 </div>
                 <div class="field">
@@ -359,12 +366,12 @@
   </div>
 
   <script src="supabase.js"></script>
-  <script src="academies.js"></script>
+  <script src="academies.js?v=asg-2"></script>
   <script src="script.js"></script>
   <script src="editor.js"></script>
   <script src="block_builder.js?v=menu-fix"></script>
   <script src="parts_builder.js"></script>
-  <script src="content_manager.js"></script>
+  <script src="content_manager.js?v=asg-2"></script>
   <script src="content_search.js"></script>
 </body>
 </html>

@@ -128,6 +128,13 @@ document.addEventListener("DOMContentLoaded", () => {
   container.addEventListener("change", e => {
     const actEl = e.target.closest(".lp-activity");
     if (actEl && container.contains(actEl)) saveActivityAnswer(actEl);
+    // Show the chosen file name next to a File Upload input.
+    const fileInput = e.target.closest(".lp-file-input");
+    if (fileInput && container.contains(fileInput)) {
+      const label = fileInput.parentNode.querySelector("[data-file-name]");
+      const f = fileInput.files && fileInput.files[0];
+      if (label) label.textContent = f ? ("📄 " + f.name) : "";
+    }
   });
   container.addEventListener("input", e => {
     const actEl = e.target.closest(".lp-activity");
@@ -783,49 +790,86 @@ function revealNextGate(cont) {
   }
 }
 
-/* Collect the submission form + lesson context and save it to Supabase. */
-function handleAssignmentSubmit(form, teamKey) {
+/* Collect the submission form + lesson context and save it to Supabase. Validates
+   against the assignment's Submission Type (at least one allowed method), uploads
+   any file to Supabase Storage, and persists the submission row. */
+async function handleAssignmentSubmit(form, teamKey) {
   const msg = form.querySelector(".lp-submit-msg");
   const val = name => { const f = form.querySelector('[name="' + name + '"]'); return f ? (f.value || "").trim() : ""; };
   const ident = (typeof Identity !== "undefined") ? Identity.get() : null;
-  // Employee identity comes from the Identification Provider (no extra typing);
-  // fall back to the form field only if not identified yet.
   const employeeName = (ident && ident.employeeName) || val("employeeName");
-  const submissionLink = val("submissionLink");
-  const textAnswer = val("textAnswer");
-  const notes = val("notes");
-
-  const err = t => { msg.style.color = "#dc2626"; msg.textContent = t; };
-  if (!employeeName) { err("اكتب اسمك الأول."); return; }
-  if (!submissionLink && !textAnswer) { err("أضف Submission Link أو Text Answer."); return; }
 
   const lessonId = form.getAttribute("data-lesson-id");
   const lesson = loadLessons().find(l => l.id === lessonId) || {};
-  const mod = loadContent().find(m => m.id === lesson.moduleId) || {};
-  // Auto-attach employeeId / employeeName / team / timestamp from the provider.
+  const asg = lesson.assignment || {};
+  const m = submissionMethods(asg.submissionType);
+  const err = t => { msg.style.color = "#dc2626"; msg.textContent = t; };
+
+  if (!employeeName) { err("اكتب اسمك الأول · Enter your name."); return; }
+
+  const submissionLink = m.link ? val("submissionLink") : "";
+  const textAnswer = m.text ? val("textAnswer") : "";
+  const fileInput = m.file ? form.querySelector('input[name="file"]') : null;
+  const file = (fileInput && fileInput.files && fileInput.files[0]) || null;
+
+  // Validate: at least one allowed method provided (combined types accept EITHER).
+  if (m.link && submissionLink && !/^https?:\/\/[^\s]+\.[^\s]+/i.test(submissionLink)) {
+    err("أضف رابط صحيح يبدأ بـ http/https · Enter a valid http(s) document URL."); return;
+  }
+  if (file) {
+    const ext = ((file.name || "").split(".").pop() || "").toLowerCase();
+    if (ASG_FILE_EXT.indexOf(ext) < 0) { err("Allowed files: PDF, DOCX, PPTX, XLSX."); return; }
+    if (file.size > ASG_FILE_MAX) { err("File too large — max 10 MB."); return; }
+  }
+  const provided = (m.text && textAnswer) || (m.link && submissionLink) || (m.file && file);
+  if (!provided) {
+    const need = [m.text ? "Text Answer" : "", m.link ? "Document Link" : "", m.file ? "File Upload" : ""].filter(Boolean).join(" or ");
+    err("Add your submission — " + need + "."); return;
+  }
+
+  const btn = form.querySelector('button[type="submit"]');
+  if (btn) btn.disabled = true;
+  msg.style.color = "#6b7280";
+  msg.textContent = file ? "Uploading…" : "Submitting…";
+
+  // File Upload → Supabase Storage (multipart, never base64). Store file metadata.
+  let fileMeta = null;
+  if (file) {
+    try {
+      if (!(typeof SB !== "undefined" && SB.uploadFile)) throw new Error("upload unavailable");
+      const url = await SB.uploadFile(file);
+      fileMeta = { file_url: url, file_name: file.name, file_type: file.type || "", file_size: file.size };
+    } catch (e) {
+      if (btn) btn.disabled = false;
+      err("File upload failed — check your connection and try again."); return;
+    }
+    msg.textContent = "Submitting…";
+  }
+
+  const mod = loadContent().find(x => x.id === lesson.moduleId) || {};
+  // Resubmission updates the existing row (no version history built this sprint).
+  const existing = currentSubmission(lessonId);
   const sub = (typeof Identity !== "undefined" ? Identity.stamp({}) : {});
-  sub.id = (typeof SB !== "undefined" && SB.subId) ? SB.subId() : ("s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
+  sub.id = (existing && existing.id) ||
+    ((typeof SB !== "undefined" && SB.subId) ? SB.subId() : ("s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)));
   sub.academyKey = teamKey;
   sub.moduleId = lesson.moduleId || "";
   sub.moduleTitle = mod.moduleTitle || "";
   sub.lessonId = lessonId;
   sub.lessonTitle = lesson.lessonTitle || "";
-  sub.assignmentTitle = (lesson.assignment && lesson.assignment.title) || "";
-  sub.employeeName = employeeName;   // provider value (or typed fallback)
+  sub.assignmentTitle = asg.title || "";
+  sub.employeeName = employeeName;
   sub.submissionLink = submissionLink;
   sub.textAnswer = textAnswer;
-  sub.notes = notes;
+  sub.submissionType = asg.submissionType || "";
+  sub.notes = "";
   sub.status = "Pending Review";
+  if (fileMeta) { sub.file_url = fileMeta.file_url; sub.file_name = fileMeta.file_name; sub.file_type = fileMeta.file_type; sub.file_size = fileMeta.file_size; }
 
-  const btn = form.querySelector('button[type="submit"]');
-  if (btn) btn.disabled = true;
-  msg.style.color = "#6b7280";
-  msg.textContent = "Submitting…";
-  pushSubmission(sub).then(function () {
-    // Optimistically cached even when offline — reflect "Submitted" immediately
-    // (it will sync when the connection returns) and unlock Final Activities.
-    onAssignmentSubmitted(form, sub);
-  });
+  await pushSubmission(sub);
+  // Optimistically cached even when offline — reflect "Submitted" immediately
+  // (it will sync when the connection returns) and unlock Final Activities.
+  onAssignmentSubmitted(form, sub);
   if (typeof Track !== "undefined") Track.assignmentSubmitted({ academyKey: teamKey, moduleId: sub.moduleId, lessonId: sub.lessonId });
 }
 
@@ -1053,11 +1097,33 @@ function fmtSubmissionDate(iso) {
   try { return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }); }
   catch (e) { return "—"; }
 }
+/* Allowed submission methods for an authored Submission Type (legacy values
+   "File Link"/"Both" map onto the current set). Combined types allow EITHER —
+   at least one is enough. */
+function submissionMethods(type) {
+  switch (String(type || "")) {
+    case "Text Answer": return { text: true };
+    case "Document Link": case "File Link": return { link: true };
+    case "File Upload": return { file: true };
+    case "Text Answer OR Document Link": case "Both": return { text: true, link: true };
+    case "Document Link OR File Upload": return { link: true, file: true };
+    case "Any Submission Method": return { text: true, link: true, file: true };
+    default: return { text: true, link: true };   // safe default for unknown/blank
+  }
+}
+var ASG_FILE_EXT = ["pdf", "docx", "pptx", "xlsx"];
+var ASG_FILE_MAX = 10 * 1024 * 1024; // 10 MB
+
 function submissionTypeLabel(sub, asg) {
-  if (sub && sub.submissionType) return sub.submissionType;
-  if (sub && sub.submissionLink) return "Document Link";
-  if (sub && sub.textAnswer) return "Text";
-  return (asg && asg.submissionType) || "—";
+  if (sub) {
+    if (sub.file_url || sub.fileUrl) return "File Upload";
+    if (sub.submissionLink) return "Document Link";
+    if (sub.textAnswer) return "Text Answer";
+    if (sub.submissionType) return sub.submissionType;
+  }
+  var t = asg && asg.submissionType;
+  if (t === "File Link") return "Document Link";
+  return t || "—";
 }
 
 /* The Assignment "page" — ONLY the assignment's own fields (never lesson
@@ -1077,37 +1143,61 @@ function assignmentPageMarkup(asg) {
       '<h4 class="lp-asg-title">' + (asg.title ? escHtml(asg.title) : "Lesson Assignment") + '</h4>' +
       (asg.objective ? field("Objective", renderRichText(asg.objective)) : "") +
       (asg.instructions ? field("Instructions", renderRichText(asg.instructions)) : "") +
-      (asg.deliverables ? field("Deliverables", renderRichText(asg.deliverables)) : "") +
+      (asg.deliverables ? field("Submission Requirements", renderRichText(asg.deliverables)) : "") +
       (chips ? '<div class="lp-asg-meta">' + chips + '</div>' : "") +
     '</div>';
 }
 
-/* Read-only "Assignment Submitted" status card shown after submission. */
+/* Read-only "Assignment Submitted" status card shown after submission. Shows the
+   submitted response (text / link / file), the review state, and — when allowed
+   or when the manager asked for changes — a Resubmit button. The response stays
+   visible in every state. */
 function submissionStatusCard(sub, asg) {
-  var date = sub ? fmtSubmissionDate(sub.createdAt || sub.timestamp) : "—";
+  var row = function (k, v) { return '<div><div class="k">' + escHtml(k) + '</div><div class="v">' + v + '</div></div>'; };
+  var date = fmtSubmissionDate(sub && (sub.createdAt || sub.timestamp || sub.created_at));
   var type = submissionTypeLabel(sub, asg);
   var status = (sub && sub.status) || "Pending Review";
-  var hasFeedback = sub && (sub.score || sub.feedback || sub.reviewedBy);
-  var waiting = !hasFeedback && /pending|review|submitted/i.test(status);
-  var row = function (k, v) { return '<div><div class="k">' + escHtml(k) + '</div><div class="v">' + v + '</div></div>'; };
-  var feedback = "";
-  if (hasFeedback) {
-    feedback =
+  var needsRevision = /needs revision/i.test(status);
+  var reviewed = /reviewed/i.test(status) && !needsRevision;
+
+  // What the employee actually submitted (any/all present, per submission type).
+  var text = sub && sub.textAnswer;
+  var link = sub && sub.submissionLink;
+  var fileUrl = sub && (sub.file_url || sub.fileUrl);
+  var fileName = sub && (sub.file_name || sub.fileName);
+  var content = "";
+  if (text) content += row("Submitted Text", '<span class="lp-status-text">' + escHtml(text) + '</span>');
+  if (link) content += row("Document Link", '<a href="' + escHtml(link) + '" target="_blank" rel="noopener">Open Document ↗</a>');
+  if (fileUrl) content += row("File", '<a href="' + escHtml(fileUrl) + '" target="_blank" rel="noopener">Download / Open ' + (fileName ? escHtml(fileName) : "file") + ' ↗</a>');
+
+  // Review-dependent rows.
+  var reviewText = needsRevision ? "Needs Revision" : (reviewed ? "Reviewed" : "Pending Review");
+  var reviewSlug = needsRevision ? "revision" : (reviewed ? "done" : "pending");
+  var reviewRows = "";
+  if (reviewed) {
+    reviewRows =
       (sub.score ? row("Score", escHtml(String(sub.score))) : "") +
       (sub.feedback ? row("Feedback", escHtml(sub.feedback)) : "") +
-      (sub.reviewedBy ? row("Reviewed By", escHtml(sub.reviewedBy)) : "");
+      ((sub.reviewedBy || sub.reviewed_by) ? row("Reviewed By", escHtml(sub.reviewedBy || sub.reviewed_by)) : "") +
+      ((sub.reviewedAt || sub.reviewed_at) ? row("Reviewed At", escHtml(fmtSubmissionDate(sub.reviewedAt || sub.reviewed_at))) : "");
+  } else if (needsRevision && sub.feedback) {
+    reviewRows = row("Manager Feedback", escHtml(sub.feedback));
   }
-  var allowResubmit = asg && (asg.allowResubmit === true || asg.allowResubmit === "true");
+
+  // Resubmit when the assignment allows it, or when the manager asked for changes.
+  var allowResubmit = (asg && (asg.allowResubmit === true || asg.allowResubmit === "true" || asg.allowResubmit === "Yes")) || needsRevision;
   return '' +
     '<div class="lp-status-card">' +
       '<h5>✅ Assignment Submitted</h5>' +
       '<div class="lp-status-grid">' +
-        row("Submission Date", escHtml(date)) +
+        row("Assignment", escHtml((asg && asg.title) || (sub && sub.assignmentTitle) || "Lesson Assignment")) +
+        row("Submitted At", escHtml(date)) +
         row("Submission Type", escHtml(type)) +
-        row("Review Status", escHtml(waiting ? "Waiting for Review" : status)) +
-        feedback +
+        content +
+        row("Review Status", '<span class="lp-review lp-review-' + reviewSlug + '">' + escHtml(reviewText) + '</span>') +
+        reviewRows +
       '</div>' +
-      (allowResubmit ? '<div style="margin-top:14px"><button type="button" class="btn btn-light lp-resubmit">Resubmit Assignment</button></div>' : "") +
+      (allowResubmit ? '<div class="lp-status-actions"><button type="button" class="btn btn-light lp-resubmit">Resubmit Assignment</button></div>' : "") +
     '</div>';
 }
 
@@ -1313,23 +1403,42 @@ function lessonAccItem(l, i, academyKey, openByDefault) {
     </div>`;
 }
 
-/* Submit-Assignment form, shown under a Published assignment. Returns "" when
-   there is no published assignment (so no form appears). */
+/* Submit-Assignment form, shown under a Published assignment. Only the inputs
+   allowed by the assignment's Submission Type are rendered. Returns "" when there
+   is no published assignment (so no form appears). */
 function submissionForm(l) {
   if (!(l && l.assignment && l.assignment.status === "Published")) return "";
+  const asg = l.assignment;
+  const m = submissionMethods(asg.submissionType);
   // Employee identity is auto-attached from the Identification Provider — show it
   // (read-only) rather than asking again; only prompt for the name if unidentified.
   const ident = (typeof Identity !== "undefined") ? Identity.get() : null;
   const nameRow = ident
     ? `<div class="lp-submit-as">👤 <strong>${escHtml(ident.employeeName)}</strong> · ${escHtml(ident.team)}</div>`
     : `<input type="text" name="employeeName" placeholder="اسمك · Employee Name" autocomplete="name" required />`;
+
+  const parts = [];
+  if (m.text) parts.push(
+    `<label class="lp-submit-label">Text Answer</label>` +
+    `<textarea name="textAnswer" rows="4" placeholder="اكتب إجابتك هنا · Type your answer"></textarea>`);
+  if (m.link) parts.push(
+    `<label class="lp-submit-label">Document Link</label>` +
+    `<input type="url" name="submissionLink" inputmode="url" placeholder="https://docs.google.com/…  ·  Drive / OneDrive / URL" />`);
+  if (m.file) parts.push(
+    `<label class="lp-submit-label">File Upload</label>` +
+    `<input type="file" name="file" class="lp-file-input" accept=".pdf,.docx,.pptx,.xlsx,application/pdf" />` +
+    `<span class="lp-file-name" data-file-name></span>` +
+    `<p class="lp-submit-hint">PDF, DOCX, PPTX, or XLSX · max 10 MB</p>`);
+
+  const methodKeys = Object.keys(m).join(",");
+  const eitherHint = (Object.keys(m).length > 1)
+    ? `<p class="lp-submit-hint">You may submit any one of the options above — you don't need all of them.</p>` : "";
   return `
-    <form class="lp-submit" data-submit-form data-lesson-id="${escHtml(l.id)}">
+    <form class="lp-submit" data-submit-form data-lesson-id="${escHtml(l.id)}" data-methods="${methodKeys}">
       <h5 class="lp-submit-title">Submit Assignment</h5>
       ${nameRow}
-      <input type="text" name="submissionLink" placeholder="Submission Link (Google Drive / URL)" />
-      <textarea name="textAnswer" rows="3" placeholder="Text Answer — اكتب إجابتك هنا"></textarea>
-      <textarea name="notes" rows="2" placeholder="Notes (اختياري)"></textarea>
+      ${parts.join("\n      ")}
+      ${eitherHint}
       <div class="lp-submit-actions">
         <button type="submit" class="btn btn-primary">Submit Assignment</button>
         <span class="lp-submit-msg" role="status" aria-live="polite"></span>

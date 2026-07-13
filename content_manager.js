@@ -425,13 +425,24 @@ function moveLesson(id, dir) {
 }
 
 /* ---------- Lesson Assignment (nested inside the lesson) ---------- */
+/* Map legacy Submission Type values onto the current option set so old
+   assignments still load into the editor without losing their meaning. */
+function normalizeSubmissionType(v) {
+  if (v === "File Link") return "Document Link";
+  if (v === "Both") return "Text Answer OR Document Link";
+  var valid = ["Text Answer", "Document Link", "File Upload",
+    "Text Answer OR Document Link", "Document Link OR File Upload", "Any Submission Method"];
+  return valid.indexOf(v) >= 0 ? v : "Text Answer";
+}
+
 function clearAssignmentFields() {
   $("aTitle").value = "";
   $("aInstructions").value = "";
   $("aDeliverables").value = "";
   $("aTime").value = "";
   $("aMinScore").value = "";
-  $("aSubmission").value = "File Link";
+  $("aSubmission").value = "Text Answer";
+  if ($("aResubmit")) $("aResubmit").value = "No";
   $("aStatus").value = "Draft";
   $("aMsg").textContent = "";
 }
@@ -443,7 +454,8 @@ function fillAssignmentForm(asg) {
   $("aDeliverables").value = asg.deliverables || "";
   $("aTime").value = asg.estTime || "";
   $("aMinScore").value = asg.minScore || "";
-  $("aSubmission").value = asg.submissionType || "File Link";
+  $("aSubmission").value = normalizeSubmissionType(asg.submissionType);
+  if ($("aResubmit")) $("aResubmit").value = asg.allowResubmit ? "Yes" : "No";
   $("aStatus").value = asg.status || "Draft";
   $("aMsg").textContent = "";
 }
@@ -468,10 +480,11 @@ function saveAssignment() {
   lesson.assignment = {
     title,
     instructions,
-    deliverables: $("aDeliverables").value.trim(),
+    deliverables: $("aDeliverables").value.trim(),   // "Submission Requirements" (key kept for compatibility)
     estTime: $("aTime").value.trim(),
     minScore: $("aMinScore").value.trim(),
     submissionType: $("aSubmission").value,
+    allowResubmit: $("aResubmit") ? ($("aResubmit").value === "Yes") : false,
     status: $("aStatus").value,
     updatedAt: nowISO()
   };

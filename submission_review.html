@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<!--
+  Submission Review Center — admin-only.
+  One page to find, open, and review every employee submission from BOTH sources:
+  Knowledge Checks (knowledge_check_responses) and Lesson Assignments (submissions).
+  Reads LIVE from Supabase (direct REST, read-only + review PATCH); self-contained,
+  so it touches no Learning Path / Content Manager / tracking / identity code.
+  Admin guard: identity.js + an explicit isAdmin() redirect to learning_path.html.
+-->
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Submission Review · Admin</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles.css?v=sr-1" />
+  <script src="identity.js"></script>
+
+  <!-- Self-contained, RTL-friendly styles (scoped .sr-*, so no other page is affected). -->
+  <style>
+    .sr-wrap { --sr-line:#e6e8ee; --sr-soft:#f5f6fa; --sr-ink:#1f2430; --sr-dim:#6b7280;
+      --sr-brand:#2563eb; --sr-brand-soft:#eaf1ff; --sr-ok:#0e9f6e; --sr-ok-soft:#e3f7ef;
+      --sr-prog:#b45309; --sr-prog-soft:#fef3e2; --sr-warn:#b91c1c; --sr-warn-soft:#fdeaea;
+      --sr-card:#fff; --sr-shadow:0 1px 2px rgba(20,25,40,.06),0 4px 14px rgba(20,25,40,.05); }
+    @media (prefers-color-scheme: dark) {
+      .sr-wrap { --sr-line:#2a2f3a; --sr-soft:#1b1f28; --sr-ink:#e9ecf2; --sr-dim:#9aa2b1;
+        --sr-brand:#5b8cff; --sr-brand-soft:#1a2540; --sr-ok:#34d399; --sr-ok-soft:#12362a;
+        --sr-prog:#f5b458; --sr-prog-soft:#3a2b10; --sr-warn:#f87171; --sr-warn-soft:#3a1a1a;
+        --sr-card:#141821; --sr-shadow:0 1px 2px rgba(0,0,0,.3); } }
+    .sr-wrap { color:var(--sr-ink); }
+    .sr-wrap * { box-sizing:border-box; }
+
+    .sr-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin:4px 0 18px; }
+    .sr-card { background:var(--sr-card); border:1px solid var(--sr-line); border-radius:14px; padding:14px 16px; box-shadow:var(--sr-shadow); display:flex; flex-direction:column; gap:2px; }
+    .sr-card-val { font-size:26px; font-weight:800; line-height:1.1; }
+    .sr-card-lbl { font-size:12px; color:var(--sr-dim); font-weight:600; }
+    .sr-card.is-warn .sr-card-val { color:var(--sr-warn); }
+    .sr-card.is-prog .sr-card-val { color:var(--sr-prog); }
+
+    .sr-filters { display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; margin-bottom:16px; }
+    .sr-f { display:flex; flex-direction:column; gap:4px; }
+    .sr-f > label { font-size:11px; font-weight:700; color:var(--sr-dim); text-transform:uppercase; letter-spacing:.03em; }
+    .sr-f input, .sr-f select { height:38px; padding:0 10px; border:1px solid var(--sr-line); border-radius:9px; background:var(--sr-card); color:var(--sr-ink); font-size:13px; min-width:135px; font-family:inherit; }
+    .sr-f-grow { flex:1 1 180px; } .sr-f-grow input { width:100%; }
+    .sr-spacer { flex:1 1 auto; }
+    .sr-btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; border-radius:9px; border:1px solid var(--sr-brand); background:var(--sr-brand); color:#fff; font-size:13px; font-weight:700; padding:8px 14px; cursor:pointer; font-family:inherit; }
+    .sr-btn:hover { filter:brightness(1.06); }
+    .sr-btn-ghost { background:var(--sr-card); color:var(--sr-ink); border-color:var(--sr-line); }
+    .sr-btn-ghost:hover { background:var(--sr-soft); }
+    .sr-btn-sm { padding:5px 10px; font-size:12px; }
+
+    .sr-tablewrap { overflow-x:auto; border:1px solid var(--sr-line); border-radius:14px; background:var(--sr-card); box-shadow:var(--sr-shadow); }
+    table.sr-table { width:100%; border-collapse:collapse; font-size:13px; min-width:920px; }
+    .sr-table th { text-align:start; font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--sr-dim); font-weight:700; padding:11px 12px; border-bottom:1px solid var(--sr-line); background:var(--sr-soft); white-space:nowrap; }
+    .sr-table td { padding:10px 12px; border-bottom:1px solid var(--sr-line); vertical-align:middle; }
+    .sr-table tr:last-child td { border-bottom:0; }
+    .sr-table tbody tr:hover { background:var(--sr-soft); }
+    .sr-dim { color:var(--sr-dim); }
+    .sr-name { font-weight:600; white-space:nowrap; }
+    .sr-th-count { font-size:12px; font-weight:700; color:var(--sr-dim); margin:2px 2px 10px; }
+
+    .sr-chip { display:inline-flex; align-items:center; gap:5px; border-radius:999px; padding:3px 10px; font-size:11.5px; font-weight:700; white-space:nowrap; }
+    .sr-chip-pending { color:var(--sr-prog); background:var(--sr-prog-soft); }
+    .sr-chip-reviewed { color:var(--sr-ok); background:var(--sr-ok-soft); }
+    .sr-chip-revision { color:var(--sr-warn); background:var(--sr-warn-soft); }
+    .sr-chip-src-kc { color:#6d28d9; background:#f3e8ff; }
+    .sr-chip-src-asg { color:var(--sr-brand); background:var(--sr-brand-soft); }
+    .sr-chip-type { color:var(--sr-dim); background:var(--sr-soft); }
+    @media (prefers-color-scheme: dark) { .sr-chip-src-kc { color:#c4b5fd; background:#2a2140; } }
+
+    .sr-empty, .sr-loading { text-align:center; color:var(--sr-dim); padding:34px 16px; font-size:13.5px; }
+    .sr-empty-ico { font-size:26px; display:block; margin-bottom:8px; opacity:.7; }
+
+    /* Detail drawer */
+    .sr-scrim { position:fixed; inset:0; background:rgba(15,20,32,.44); z-index:60; }
+    .sr-scrim[hidden] { display:none; }
+    .sr-drawer { position:fixed; inset-block:0; inset-inline-end:0; width:min(560px,94vw); background:var(--sr-card); color:var(--sr-ink);
+      z-index:61; box-shadow:-8px 0 30px rgba(15,20,32,.22); transform:translateX(100%); transition:transform .22s ease; display:flex; flex-direction:column; }
+    html[dir="rtl"] .sr-drawer { box-shadow:8px 0 30px rgba(15,20,32,.22); transform:translateX(-100%); }
+    .sr-drawer.open { transform:translateX(0); }
+    html[dir="rtl"] .sr-drawer.open { transform:translateX(0); }
+    .sr-drawer-bar { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:14px 18px; border-bottom:1px solid var(--sr-line); }
+    .sr-drawer-title { font-weight:800; font-size:15px; }
+    .sr-drawer-close { background:none; border:0; font-size:18px; cursor:pointer; color:var(--sr-dim); line-height:1; }
+    .sr-drawer-body { padding:18px; overflow-y:auto; }
+
+    .sr-sec { margin-bottom:18px; }
+    .sr-sec-h { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--sr-brand); font-weight:800; margin:0 0 8px; }
+    .sr-kv { display:grid; grid-template-columns:130px 1fr; gap:6px 12px; font-size:13.5px; }
+    .sr-kv .k { color:var(--sr-dim); font-weight:600; }
+    .sr-kv .v { font-weight:600; word-break:break-word; }
+    .sr-answer { white-space:pre-wrap; word-break:break-word; background:var(--sr-soft); border:1px solid var(--sr-line); border-radius:10px; padding:12px 14px; font-size:13.5px; }
+    .sr-link { display:inline-block; word-break:break-all; color:var(--sr-brand); font-weight:600; margin-bottom:8px; }
+    .sr-file { background:var(--sr-soft); border:1px solid var(--sr-line); border-radius:10px; padding:12px 14px; }
+    .sr-actions-row { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+
+    .sr-review { border-top:1px solid var(--sr-line); padding-top:14px; }
+    .sr-review label { display:block; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--sr-dim); margin:10px 0 4px; }
+    .sr-review select, .sr-review input, .sr-review textarea { width:100%; border:1px solid var(--sr-line); border-radius:9px; background:var(--sr-card); color:var(--sr-ink); font-size:13.5px; padding:9px 11px; font-family:inherit; }
+    .sr-review textarea { resize:vertical; min-height:70px; }
+    .sr-review-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+    .sr-review-msg { font-size:13px; font-weight:700; margin-top:10px; min-height:18px; }
+  </style>
+</head>
+<body>
+
+  <header class="topbar">
+    <button class="menu-btn" id="menuBtn" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar">☰</button>
+    <span class="topbar-logo">SD</span>
+    <span class="topbar-title">Sales Data — Learning Center</span>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-logo">SD</div>
+        <div class="brand-text"><strong>Sales Data</strong><span>Learning Center</span></div>
+      </div>
+      <nav class="nav" aria-label="Main">
+        <a class="nav-item" href="index.html"><span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h5v-6h4v6h5V9.5"/></svg></span><span class="nav-label">Learning Center</span></a>
+        <a class="nav-item" href="learning_path.html"><span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="16" rx="2"/><path d="M9 5V4.2A1.2 1.2 0 0 1 10.2 3h3.6A1.2 1.2 0 0 1 15 4.2V5"/><path d="M9 11h6"/><path d="M9 15h4"/></svg></span><span class="nav-label">Learning Path</span></a>
+        <a class="nav-item" href="content_manager.html"><span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/><path d="M8 20V9"/></svg></span><span class="nav-label">Content Manager</span></a>
+        <a class="nav-item" href="dashboard.html"><span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M2 20h20"/></svg></span><span class="nav-label">Dashboard</span></a>
+        <a class="nav-item" href="employee_progress.html"><span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="nav-label">Learning Dashboard</span></a>
+        <a class="nav-item active" href="submission_review.html"><span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span><span class="nav-label">Submission Review</span></a>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="foot-progress"><div class="foot-label">Admin View</div><div class="foot-percent" id="srFootCount">—</div></div>
+      </div>
+    </aside>
+
+    <div class="backdrop" id="backdrop"></div>
+
+    <main class="content">
+      <div class="sr-wrap">
+        <div class="page-head reveal">
+          <h1>Submission Review</h1>
+          <p class="muted">Find, open, and review every Knowledge Check &amp; Assignment submission — live Supabase data, admin only.</p>
+        </div>
+
+        <div class="sr-cards" id="srCards"></div>
+
+        <div class="sr-filters" id="srFilters">
+          <div class="sr-f sr-f-grow"><label for="srSearch">Employee</label><input type="text" id="srSearch" placeholder="Search employee name…" autocomplete="off" /></div>
+          <div class="sr-f"><label for="srTeam">Team</label><select id="srTeam"><option value="">All Teams</option></select></div>
+          <div class="sr-f"><label for="srSource">Source</label><select id="srSource"><option value="">All Sources</option><option value="Knowledge Check">Knowledge Check</option><option value="Assignment">Assignment</option></select></div>
+          <div class="sr-f"><label for="srAcademy">Academy</label><select id="srAcademy"><option value="">All Academies</option></select></div>
+          <div class="sr-f"><label for="srModule">Module</label><select id="srModule"><option value="">All Modules</option></select></div>
+          <div class="sr-f"><label for="srLesson">Lesson</label><select id="srLesson"><option value="">All Lessons</option></select></div>
+          <div class="sr-f"><label for="srSection">Section</label><select id="srSection"><option value="">All Sections</option></select></div>
+          <div class="sr-f"><label for="srType">Response Type</label><select id="srType"><option value="">All Types</option><option value="Text">Text</option><option value="Document Link">Document Link</option><option value="File Upload">File Upload</option></select></div>
+          <div class="sr-f"><label for="srStatus">Review Status</label><select id="srStatus"><option value="">All Statuses</option><option value="Pending Review">Pending Review</option><option value="Reviewed">Reviewed</option><option value="Needs Revision">Needs Revision</option></select></div>
+          <div class="sr-f"><label for="srDate">Submitted After</label><input type="date" id="srDate" /></div>
+          <div class="sr-spacer"></div>
+          <button type="button" class="sr-btn sr-btn-ghost" id="srRefresh">↻ Refresh</button>
+        </div>
+
+        <div class="sr-th-count" id="srCount">—</div>
+        <div class="sr-tablewrap">
+          <table class="sr-table" id="srTable">
+            <thead><tr>
+              <th>Employee</th><th>Team</th><th>Source</th><th>Academy</th><th>Module</th><th>Lesson</th>
+              <th>Section</th><th>Task / Question</th><th>Type</th><th>Submitted</th><th>Status</th><th></th>
+            </tr></thead>
+            <tbody id="srList"><tr><td colspan="12" class="sr-loading">Loading live data from Supabase…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Detail drawer -->
+  <div class="sr-scrim" id="srScrim" hidden></div>
+  <aside class="sr-drawer" id="srDrawer" aria-hidden="true" aria-label="Submission detail">
+    <div class="sr-drawer-bar">
+      <span class="sr-drawer-title">Submission Detail</span>
+      <button type="button" class="sr-drawer-close" id="srDrawerClose" aria-label="Close">✕</button>
+    </div>
+    <div class="sr-drawer-body" id="srDrawerBody"></div>
+  </aside>
+
+  <script src="supabase.js"></script>
+  <script src="academies.js"></script>
+  <script src="script.js"></script>
+  <script src="submission_review.js?v=sr-1"></script>
+</body>
+</html>

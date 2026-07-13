@@ -1,22 +1,37 @@
 /* ============================================================
-   Employee Progress Dashboard v1.0 (admin only)
+   Admin Learning Dashboard — management drill-down (admin only)
    ------------------------------------------------------------
-   Reads every analytics dataset from Supabase ONCE, then does all
-   filtering / searching / aggregation client-side. Sources:
-     employee_profiles, learning_progress, knowledge_check_responses,
-     submissions, lesson_activity_log  (+ modules / lessons for structure).
+   Hierarchy:  Team → Employee → Module → Lesson → Section → KC / Assignment
 
-   Access is admin-only (identity.js already redirects non-admins; we also
-   guard here). Nothing here writes to Supabase or touches the Learning Path,
-   Content Manager, Knowledge Check, Assignment, or identity logic.
+   Reads LIVE from Supabase ONCE, then navigates / filters / aggregates entirely
+   client-side. Data sources:
+     • employee_profiles          — one row per employee (+ resume state + time)
+     • learning_progress          — per-lesson status (started / completed)
+     • lesson_activity_log        — the event stream (section opened/completed,
+                                     KC started/result, time_spent, …)
+     • knowledge_check_responses  — the employee's actual KC answers + grading
+     • submissions                — assignment submissions + review status
+     • modules / lessons          — course structure (for "what was NOT viewed")
+
+   Admin only: identity.js redirects non-admins; we also guard here. The only
+   writes are assignment-review updates (SB.updateSubmission) triggered by the
+   admin from the Assignment panel — nothing here touches the Learning Path,
+   Content Manager, tracking logic, Knowledge Check, or identity code.
+   Missing values render as "Not available" — never invented.
    ============================================================ */
 (function () {
   "use strict";
 
   var S = { profiles: [], progress: [], kcs: [], subs: [], activity: [], modules: [], lessons: [], rows: [] };
   var INACTIVE_DAYS = 7;
+  var CANON_TEAMS = ["Sales", "Sales Data", "Sales Accounting"]; // always shown (from index.html team list)
+  var NA = "Not available";
 
-  /* ---------- tiny helpers ---------- */
+  // Navigation state (a small stack we can render from, no page reloads).
+  var view = { name: "teams", team: null, empId: null };
+  var open = { modules: {}, lessons: {} }; // expand/collapse state, keyed by employee+id
+
+  /* ---------------- tiny helpers ---------------- */
   function $(id) { return document.getElementById(id); }
   function esc(s) {
     return (typeof escHtml === "function") ? escHtml(s)
@@ -28,12 +43,12 @@
   function isToday(iso) { return iso && dayKey(iso) === todayKey(); }
   function daysSince(iso) { if (!iso) return Infinity; return (Date.now() - new Date(iso).getTime()) / 86400000; }
   function fmtDate(iso) {
-    if (!iso) return "—";
-    try { return new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); } catch (e) { return "—"; }
+    if (!iso) return NA;
+    try { return new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); } catch (e) { return NA; }
   }
   function fmtDateTime(iso) {
-    if (!iso) return "—";
-    try { return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); } catch (e) { return "—"; }
+    if (!iso) return NA;
+    try { return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); } catch (e) { return NA; }
   }
   function timeAgo(iso) {
     if (!iso) return "Never";
@@ -44,16 +59,30 @@
     var d = Math.round(mins / 1440);
     return d + (d === 1 ? " day ago" : " days ago");
   }
-  function pctBar(pct, kind) {
-    return '<div class="ep-bar' + (kind ? " ep-bar-" + kind : "") + '"><span style="width:' + Math.max(0, Math.min(100, pct)) + '%"></span></div>';
+  function fmtDuration(sec) {
+    sec = Number(sec) || 0;
+    if (sec <= 0) return "0m";
+    var h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+    if (h) return h + "h " + m + "m";
+    if (m) return m + "m";
+    return Math.round(sec) + "s";
   }
+  function bar(pct, done) {
+    pct = Math.max(0, Math.min(100, pct || 0));
+    return '<div class="epd-bar' + (done ? " is-done" : "") + '"><span style="width:' + pct + '%"></span></div>';
+  }
+  function chip(text, slug) { return '<span class="epd-chip epd-chip-' + slug + '">' + esc(text) + '</span>'; }
+  function initials(name) { return (String(name || "?").trim()[0] || "?").toUpperCase(); }
 
-  /* ---------- data load (once) ---------- */
+  var STATUS_SLUG = { "Not Started": "ns", "In Progress": "prog", "Completed": "done", "Inactive": "inactive", "Locked": "lock" };
+  function statusChip(st) { return chip(st, STATUS_SLUG[st] || "ns"); }
+
+  /* ---------------- data load (once) ---------------- */
   function fetchActivity() {
     // lesson_activity_log has no SB.fetch* helper — read it directly (read-only).
     try {
       if (typeof SUPABASE_URL === "undefined" || !SUPABASE_URL) return Promise.resolve([]);
-      var url = SUPABASE_URL.replace(/\/+$/, "") + "/rest/v1/lesson_activity_log?select=*&order=created_at.desc&limit=5000";
+      var url = SUPABASE_URL.replace(/\/+$/, "") + "/rest/v1/lesson_activity_log?select=*&order=created_at.desc&limit=10000";
       return fetch(url, { headers: { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + SUPABASE_ANON_KEY } })
         .then(function (r) { return r.ok ? r.json() : []; }).catch(function () { return []; });
     } catch (e) { return Promise.resolve([]); }
@@ -70,14 +99,13 @@
       S.progress = r[1] || [];
       S.kcs = r[2] || [];
       S.subs = r[3] || [];
-      // modules/lessons come back as app-shaped objects (moduleFromRow/lessonFromRow).
       S.modules = r[4] || [];
       S.lessons = r[5] || [];
       S.activity = r[6] || [];
     });
   }
 
-  /* ---------- per-academy structure ---------- */
+  /* ---------------- structure helpers ---------------- */
   function pubLessons(academyKey) {
     return S.lessons.filter(function (l) { return l && l.academyKey === academyKey && l.status === "Published"; });
   }
@@ -85,101 +113,65 @@
     return S.modules.filter(function (m) { return m && m.academyKey === academyKey; })
       .sort(function (a, b) { return (parseFloat(a.moduleNumber) || 0) - (parseFloat(b.moduleNumber) || 0); });
   }
-  function lessonById(id) { return S.lessons.find(function (l) { return l.id === id; }); }
+  function lessonsOfModule(academyKey, moduleId) {
+    return pubLessons(academyKey).filter(function (l) { return l.moduleId === moduleId; })
+      .sort(function (a, b) { return (parseFloat(a.lessonNumber) || 0) - (parseFloat(b.lessonNumber) || 0) || (Number(a.order) || 0) - (Number(b.order) || 0); });
+  }
   function moduleById(id) { return S.modules.find(function (m) { return m.id === id; }); }
+  function lessonById(id) { return S.lessons.find(function (l) { return l.id === id; }); }
   function academyName(key) {
     if (typeof academyByKey === "function") { var a = academyByKey(key); if (a) return a.name; }
-    return key || "—";
+    return key || NA;
+  }
+  function partsOf(lesson) { try { return (typeof lessonParts === "function") ? lessonParts(lesson) : []; } catch (e) { return []; } }
+  function partTitle(part) {
+    if (typeof sectionDisplayTitle === "function") { try { return sectionDisplayTitle(part) || part.title; } catch (e) {} }
+    return part.title || ("Part " + (part.partNumber || ""));
   }
 
-  /* ---------- compute one row per employee ---------- */
-  function progressFor(empId) { return S.progress.filter(function (p) { return p.employee_id === empId; }); }
-  function kcsFor(empId) { return S.kcs.filter(function (k) { return k.employee_id === empId; }); }
-  function subsFor(empId) { return S.subs.filter(function (s) { return s.employee_id === empId; }); }
-  function activityFor(empId) { return S.activity.filter(function (a) { return a.employee_id === empId; }); }
+  /* ---------------- per-employee selectors ---------------- */
+  function progressFor(id) { return S.progress.filter(function (p) { return p.employee_id === id; }); }
+  function kcsFor(id) { return S.kcs.filter(function (k) { return k.employee_id === id; }); }
+  // NOTE: submissions come back camelCase (submissionFromRow); everything else is raw snake_case.
+  function subsFor(id) { return S.subs.filter(function (s) { return s.employeeId === id; }); }
+  function activityFor(id) { return S.activity.filter(function (a) { return a.employee_id === id; }); }
+  function isPending(sub) { return /pending|revision/i.test(String(sub.status || "Pending")); }
 
-  function kcAverage(list) {
-    var obj = list.filter(function (k) { return k.is_correct === true || k.is_correct === false; });
-    if (!obj.length) return null;
-    var ok = obj.filter(function (k) { return k.is_correct === true; }).length;
-    return Math.round((ok / obj.length) * 100);
-  }
-  function isPending(sub) { return /pending/i.test(String(sub.status || sub.review_status || "")); }
-
+  /* ---------------- one summary row per employee ---------------- */
   function computeRows() {
     S.rows = S.profiles.map(function (p) {
       var academy = p.academy_key || "";
       var prog = progressFor(p.id);
-      var total = pubLessons(academy).length;
-      var pubIds = {}; pubLessons(academy).forEach(function (l) { pubIds[l.id] = 1; });
-      var doneLessons = prog.filter(function (pr) { return pr.status === "completed" && (pubIds[pr.lesson_id] || total === 0); });
-      var done = doneLessons.length;
+      var pub = pubLessons(academy);
+      var total = pub.length;
+      var pubIds = {}; pub.forEach(function (l) { pubIds[l.id] = 1; });
+      var done = prog.filter(function (pr) { return pr.status === "completed" && (pubIds[pr.lesson_id] || total === 0); }).length;
       var overall = total ? Math.round((done / total) * 100) : (done ? 100 : 0);
-      var kc = kcsFor(p.id);
       var pending = subsFor(p.id).filter(isPending).length;
-      var last = p.last_active;
       var startedAny = prog.length > 0 || activityFor(p.id).length > 0;
+      var last = p.last_active;
 
       var status;
       if (!startedAny) status = "Not Started";
       else if (total > 0 && done >= total) status = "Completed";
       else if (daysSince(last) > INACTIVE_DAYS) status = "Inactive";
-      else status = "Learning";
+      else status = "In Progress";
 
       return {
-        id: p.id, name: p.employee_name || "—", team: p.team || "—",
+        id: p.id, name: p.employee_name || NA, team: p.team || "—",
         academyKey: academy, academyName: academyName(academy),
         overall: overall, doneLessons: done, totalLessons: total,
-        currentModule: p.current_module_title || "—",
-        currentLesson: p.current_lesson_title || "—",
-        currentSection: "—", // section-level progress is client-side only (see limitations)
-        kcAvg: kcAverage(kc), pending: pending,
-        lastActive: last, startDate: p.first_seen, status: status,
-        _p: p
+        currentModule: p.current_module_title || NA,
+        currentLesson: p.current_lesson_title || NA,
+        currentSection: p.current_section_title || NA,
+        pending: pending, started: startedAny,
+        lastActive: last, firstSeen: p.first_seen, totalTime: p.total_time_seconds || 0,
+        status: status, _p: p
       };
     });
   }
 
-  /* ---------- summary cards ---------- */
-  function renderCards() {
-    var totalEmp = S.rows.length;
-    var activeToday = S.rows.filter(function (r) { return isToday(r.lastActive); }).length;
-    var avgProg = totalEmp ? Math.round(S.rows.reduce(function (a, r) { return a + r.overall; }, 0) / totalEmp) : 0;
-    var completedToday = S.progress.filter(function (pr) { return pr.status === "completed" && isToday(pr.completed_at); }).length;
-    var pendingReviews = S.subs.filter(isPending).length;
-    var kcAvgAll = kcAverage(S.kcs);
-
-    var cards = [
-      { label: "Total Employees", value: totalEmp, ico: "👥" },
-      { label: "Active Today", value: activeToday, ico: "🟢" },
-      { label: "Average Progress", value: avgProg + "%", ico: "📈" },
-      { label: "Completed Lessons Today", value: completedToday, ico: "✅" },
-      { label: "Pending Assignment Reviews", value: pendingReviews, ico: "📋" },
-      { label: "Avg Knowledge Check Score", value: (kcAvgAll == null ? "—" : kcAvgAll + "%"), ico: "🎯" }
-    ];
-    $("epCards").innerHTML = cards.map(function (c) {
-      return '<div class="ep-card"><span class="ep-card-ico" aria-hidden="true">' + c.ico + '</span>' +
-        '<span class="ep-card-value">' + esc(c.value) + '</span>' +
-        '<span class="ep-card-label">' + esc(c.label) + '</span></div>';
-    }).join("");
-    var foot = $("epFootCount"); if (foot) foot.textContent = totalEmp + " employees";
-  }
-
-  /* ---------- filter option population ---------- */
-  function uniqueSorted(arr) { return Array.from(new Set(arr.filter(Boolean))).sort(); }
-  function fillSelect(sel, values, keepFirst) {
-    if (!sel) return;
-    var first = keepFirst ? sel.options[0].outerHTML : "";
-    sel.innerHTML = first + values.map(function (v) { return '<option value="' + esc(v) + '">' + esc(v) + '</option>'; }).join("");
-  }
-  function populateFilterOptions() {
-    fillSelect($("epTeam"), uniqueSorted(S.rows.map(function (r) { return r.team; })), true);
-    fillSelect($("epAcademy"), uniqueSorted(S.rows.map(function (r) { return r.academyName; })), true);
-    fillSelect($("epModule"), uniqueSorted(S.rows.map(function (r) { return r.currentModule; }).filter(function (v) { return v && v !== "—"; })), true);
-    fillSelect($("epLesson"), uniqueSorted(S.rows.map(function (r) { return r.currentLesson; }).filter(function (v) { return v && v !== "—"; })), true);
-  }
-
-  /* ---------- filtering (client-side) ---------- */
+  /* ---------------- global filters ---------------- */
   function progressBucket(pct) {
     if (pct >= 100) return "100";
     if (pct >= 75) return "75";
@@ -188,233 +180,523 @@
     if (pct > 0) return "1";
     return "0";
   }
-  function applyFilters() {
-    var q = ($("epSearch").value || "").trim().toLowerCase();
-    var team = $("epTeam").value, acad = $("epAcademy").value, status = $("epStatus").value;
-    var mod = $("epModule").value, les = $("epLesson").value;
-    var prog = $("epProgress").value, asg = $("epAssign").value;
-    var activeToday = $("epActiveToday").checked;
+  function filterVals() {
+    return {
+      q: ($("epSearch").value || "").trim().toLowerCase(),
+      team: $("epTeam").value, acad: $("epAcademy").value, mod: $("epModule").value,
+      status: $("epStatus").value, prog: $("epProgress").value,
+      activeToday: $("epActiveToday").checked, pending: $("epPending").checked
+    };
+  }
+  // Rows passing the GLOBAL filters (team filter optional — pass ignoreTeam when a
+  // team is already fixed by the drill-down).
+  function filteredRows(ignoreTeam) {
+    var f = filterVals();
     return S.rows.filter(function (r) {
-      if (q && r.name.toLowerCase().indexOf(q) < 0) return false;
-      if (team && r.team !== team) return false;
-      if (acad && r.academyName !== acad) return false;
-      if (status && r.status !== status) return false;
-      if (mod && r.currentModule !== mod) return false;
-      if (les && r.currentLesson !== les) return false;
-      if (prog && progressBucket(r.overall) !== prog) return false;
-      if (asg === "pending" && r.pending <= 0) return false;
-      if (asg === "none" && r.pending > 0) return false;
-      if (activeToday && !isToday(r.lastActive)) return false;
+      if (f.q && r.name.toLowerCase().indexOf(f.q) < 0) return false;
+      if (!ignoreTeam && f.team && r.team !== f.team) return false;
+      if (f.acad && r.academyName !== f.acad) return false;
+      if (f.status && r.status !== f.status) return false;
+      if (f.mod && r.currentModule !== f.mod) return false;
+      if (f.prog && progressBucket(r.overall) !== f.prog) return false;
+      if (f.activeToday && !isToday(r.lastActive)) return false;
+      if (f.pending && r.pending <= 0) return false;
       return true;
     });
   }
 
-  /* ---------- table ---------- */
-  function statusPill(st) {
-    var slug = { "Not Started": "ns", "Learning": "learn", "Completed": "done", "Inactive": "inactive" }[st] || "ns";
-    return '<span class="ep-status ep-status-' + slug + '">' + esc(st) + '</span>';
-  }
-  function renderTable() {
-    var rows = applyFilters();
-    var tb = $("epList");
-    if (!rows.length) { tb.innerHTML = '<tr><td colspan="11" class="ep-empty">No employees match these filters.</td></tr>'; return; }
-    tb.innerHTML = rows.map(function (r) {
-      return '<tr class="ep-row" data-emp="' + esc(r.id) + '" tabindex="0" role="button">' +
-        '<td class="ep-name"><span class="ep-avatar" aria-hidden="true">' + esc((r.name[0] || "?").toUpperCase()) + '</span>' + esc(r.name) + '</td>' +
-        '<td>' + esc(r.team) + '</td>' +
-        '<td>' + esc(r.academyName) + '</td>' +
-        '<td class="ep-progcell"><div class="ep-progwrap">' + pctBar(r.overall) + '<span class="ep-progtxt">' + r.overall + '%</span></div></td>' +
-        '<td class="ep-dim">' + esc(r.currentModule) + '</td>' +
-        '<td class="ep-dim">' + esc(r.currentLesson) + '</td>' +
-        '<td class="ep-dim">' + esc(r.currentSection) + '</td>' +
-        '<td>' + (r.kcAvg == null ? '<span class="ep-dim">—</span>' : r.kcAvg + '%') + '</td>' +
-        '<td>' + (r.pending > 0 ? '<span class="ep-badge-warn">' + r.pending + '</span>' : '<span class="ep-dim">0</span>') + '</td>' +
-        '<td class="ep-dim" title="' + esc(fmtDateTime(r.lastActive)) + '"><bdi>' + esc(timeAgo(r.lastActive)) + '</bdi></td>' +
-        '<td>' + statusPill(r.status) + '</td>' +
-        '</tr>';
+  /* ---------------- top summary cards ---------------- */
+  function renderCards() {
+    var rows = S.rows;
+    var total = rows.length;
+    var started = rows.filter(function (r) { return r.started; }).length;
+    var inProg = rows.filter(function (r) { return r.status === "In Progress"; }).length;
+    var completed = rows.filter(function (r) { return r.status === "Completed"; }).length;
+    var activeToday = rows.filter(function (r) { return isToday(r.lastActive); }).length;
+    var pending = S.subs.filter(isPending).length;
+
+    var cards = [
+      { l: "Total Employees", v: total },
+      { l: "Started", v: started },
+      { l: "In Progress", v: inProg },
+      { l: "Completed", v: completed },
+      { l: "Active Today", v: activeToday },
+      { l: "Pending Reviews", v: pending, warn: pending > 0 }
+    ];
+    $("epCards").innerHTML = cards.map(function (c) {
+      return '<div class="epd-card' + (c.warn ? " is-warn" : "") + '"><span class="epd-card-val">' + esc(c.v) +
+        '</span><span class="epd-card-lbl">' + esc(c.l) + '</span></div>';
     }).join("");
-    var cnt = $("epCount"); if (cnt) cnt.textContent = rows.length + " / " + S.rows.length;
+    var foot = $("epFootCount"); if (foot) foot.textContent = total + " employees";
   }
 
-  /* ---------- module / lesson / section detail ---------- */
-  function moduleProgressList(r) {
-    var mods = modulesOf(r.academyKey);
-    if (!mods.length) return '<p class="ep-none">No modules for this academy.</p>';
-    var prog = progressFor(r.id);
-    return mods.map(function (m) {
-      var mLessons = pubLessons(r.academyKey).filter(function (l) { return l.moduleId === m.id; });
-      var total = mLessons.length;
-      var doneIds = {}; prog.forEach(function (p) { if (p.status === "completed") doneIds[p.lesson_id] = 1; });
-      var done = mLessons.filter(function (l) { return doneIds[l.id]; }).length;
-      var pct = total ? Math.round(done / total * 100) : 0;
-      var state = total === 0 ? "Locked" : (done >= total ? "Completed" : (done > 0 || m.id === r._p.current_module_id ? "In Progress" : "Locked"));
-      var sslug = { "Completed": "done", "In Progress": "prog", "Locked": "lock" }[state];
-      return '<div class="ep-mod"><div class="ep-mod-top"><span class="ep-mod-title">M' + esc(m.moduleNumber) + ' — ' + esc(m.moduleTitle) + '</span>' +
-        '<span class="ep-chip ep-chip-' + sslug + '">' + esc(state) + '</span></div>' +
-        pctBar(pct) + '<span class="ep-mod-sub">' + done + ' / ' + total + ' lessons · ' + pct + '%</span></div>';
-    }).join("");
+  /* ---------------- filter option population ---------------- */
+  function uniqueSorted(arr) { return Array.from(new Set(arr.filter(function (v) { return v && v !== NA && v !== "—"; }))).sort(); }
+  function fillSelect(sel, values) {
+    if (!sel) return;
+    var first = sel.options[0] ? sel.options[0].outerHTML : "";
+    var keep = sel.value;
+    sel.innerHTML = first + values.map(function (v) { return '<option value="' + esc(v) + '">' + esc(v) + '</option>'; }).join("");
+    if (keep) sel.value = keep;
   }
-  function lessonRows(r) {
-    var lessons = pubLessons(r.academyKey).slice().sort(function (a, b) {
-      return (parseFloat(a.moduleNumber) || 0) - (parseFloat(b.moduleNumber) || 0) || (Number(a.order) || 0) - (Number(b.order) || 0);
-    });
-    if (!lessons.length) return '<tr><td colspan="5" class="ep-none">No lessons.</td></tr>';
-    var pmap = {}; progressFor(r.id).forEach(function (p) { pmap[p.lesson_id] = p; });
-    return lessons.map(function (l) {
-      var p = pmap[l.id] || {};
-      var st = p.status === "completed" ? "Completed" : (p.status === "in-progress" ? "In Progress" : "Not Started");
-      var pct = p.status === "completed" ? 100 : (p.status === "in-progress" ? 50 : 0);
-      var sslug = { "Completed": "done", "In Progress": "prog", "Not Started": "lock" }[st];
-      return '<tr><td>L' + esc(l.lessonNumber) + ' — ' + esc(l.lessonTitle) + '</td>' +
-        '<td><span class="ep-chip ep-chip-' + sslug + '">' + esc(st) + '</span></td>' +
-        '<td class="ep-dim">' + esc(fmtDate(p.started_at)) + '</td>' +
-        '<td class="ep-dim">' + esc(fmtDate(p.completed_at)) + '</td>' +
-        '<td class="ep-progcell">' + pctBar(pct) + '</td></tr>';
-    }).join("");
-  }
-  function sectionRows(r) {
-    // Section (Part) completion is stored per-employee in localStorage, not in
-    // Supabase — so time/attempts/time-spent are not available server-side.
-    var lessons = pubLessons(r.academyKey);
-    var pmap = {}; progressFor(r.id).forEach(function (p) { pmap[p.lesson_id] = p; });
-    var out = [], any = false;
-    lessons.forEach(function (l) {
-      var parts = (typeof lessonParts === "function") ? lessonParts(l) : [];
-      if (!parts.length) return;
-      var lp = pmap[l.id] || {};
-      var lessonDone = lp.status === "completed";
-      parts.forEach(function (part) {
-        any = true;
-        var title = (typeof sectionDisplayTitle === "function") ? sectionDisplayTitle(part) : (part.title || "Section");
-        var st = lessonDone ? "Completed" : (lp.status === "in-progress" ? "In Progress" : "Locked");
-        var sslug = { "Completed": "done", "In Progress": "prog", "Locked": "lock" }[st];
-        out.push('<tr><td>' + esc(l.lessonTitle) + ' · ' + esc(title) + '</td>' +
-          '<td><span class="ep-chip ep-chip-' + sslug + '">' + esc(st) + '</span></td>' +
-          '<td class="ep-dim">—</td><td class="ep-dim">—</td><td class="ep-dim">—</td></tr>');
-      });
-    });
-    if (!any) return '<tr><td colspan="5" class="ep-none">No sections.</td></tr>';
-    return out.join("");
-  }
-  function kcHistory(r) {
-    var list = kcsFor(r.id).slice().sort(function (a, b) { return new Date(b.submitted_at) - new Date(a.submitted_at); });
-    if (!list.length) return '<tr><td colspan="6" class="ep-none">No Knowledge Check submissions.</td></tr>';
-    return list.map(function (k) {
-      var result = (k.is_correct === true) ? '<span class="ep-chip ep-chip-done">Correct</span>'
-        : (k.is_correct === false) ? '<span class="ep-chip ep-chip-lock">Incorrect</span>'
-        : '<span class="ep-chip ep-chip-prog">' + esc(k.review_status || "Submitted") + '</span>';
-      var score = (k.score ? esc(k.score) : (k.is_correct === true ? "100%" : (k.is_correct === false ? "0%" : "—")));
-      return '<tr><td>' + esc((k.question || "—")).slice(0, 120) + '</td>' +
-        '<td class="ep-dim">' + esc(k.response_type || "—") + '</td>' +
-        '<td>' + result + '</td><td class="ep-dim">1</td>' +
-        '<td class="ep-dim">' + esc(fmtDate(k.submitted_at)) + '</td>' +
-        '<td>' + score + '</td></tr>';
-    }).join("");
-  }
-  function assignmentRows(r) {
-    var list = subsFor(r.id).slice().sort(function (a, b) { return new Date(b.created_at) - new Date(a.created_at); });
-    if (!list.length) return '<tr><td colspan="6" class="ep-none">No assignment submissions.</td></tr>';
-    return list.map(function (a) {
-      var link = a.submission_link || a.file_url || "";
-      var linkHtml = link ? '<a href="' + esc(link) + '" target="_blank" rel="noopener">Open ↗</a>' : (a.text_answer ? '<span class="ep-dim">Text</span>' : '<span class="ep-dim">—</span>');
-      var rev = a.status || "Pending Review";
-      var rslug = /review|reviewed/i.test(rev) && !/pending/i.test(rev) ? "done" : (/pending/i.test(rev) ? "prog" : "lock");
-      return '<tr><td>' + esc(a.assignment_title || a.lesson_title || "Assignment") + '</td>' +
-        '<td><span class="ep-chip ep-chip-' + rslug + '">' + esc(rev) + '</span></td>' +
-        '<td class="ep-dim">' + esc(fmtDate(a.created_at)) + '</td>' +
-        '<td>' + (a.score ? esc(a.score) : '<span class="ep-dim">—</span>') + '</td>' +
-        '<td class="ep-dim">' + esc(a.feedback || "—") + '</td>' +
-        '<td>' + linkHtml + '</td></tr>';
-    }).join("");
-  }
-  var EVENT_LABEL = {
-    identified: "Identified", academy_opened: "Opened academy", module_opened: "Opened module",
-    lesson_opened: "Started lesson", lesson_completed: "Completed lesson",
-    kc_submitted: "Submitted Knowledge Check", assignment_submitted: "Uploaded assignment"
-  };
-  function timeline(r) {
-    var list = activityFor(r.id).slice().sort(function (a, b) { return new Date(b.created_at) - new Date(a.created_at); }).slice(0, 60);
-    if (!list.length) return '<p class="ep-none">No recorded activity yet.</p>';
-    return '<ul class="ep-timeline">' + list.map(function (e) {
-      var l = e.lesson_id ? lessonById(e.lesson_id) : null;
-      var m = e.module_id ? moduleById(e.module_id) : null;
-      var ctx = [m ? "M" + m.moduleNumber : "", l ? l.lessonTitle : ""].filter(Boolean).join(" · ");
-      return '<li class="ep-tl-item"><span class="ep-tl-dot" aria-hidden="true"></span>' +
-        '<div class="ep-tl-body"><span class="ep-tl-title">' + esc(EVENT_LABEL[e.event_type] || e.event_type) + '</span>' +
-        (ctx ? '<span class="ep-tl-ctx">' + esc(ctx) + '</span>' : '') +
-        '<span class="ep-tl-time">' + esc(fmtDateTime(e.created_at)) + '</span></div></li>';
-    }).join("") + '</ul>';
+  function populateFilterOptions() {
+    var teams = uniqueSorted(CANON_TEAMS.concat(S.rows.map(function (r) { return r.team; })));
+    fillSelect($("epTeam"), teams);
+    fillSelect($("epAcademy"), uniqueSorted(S.rows.map(function (r) { return r.academyName; })));
+    fillSelect($("epModule"), uniqueSorted(S.rows.map(function (r) { return r.currentModule; })));
   }
 
-  /* ---------- profile drawer ---------- */
-  function openProfile(empId) {
+  /* ============================================================
+     VIEW 1 — TEAMS (default)
+     ============================================================ */
+  function teamAggregate(team, rows) {
+    var emps = rows.filter(function (r) { return r.team === team; });
+    var total = emps.length;
+    var started = emps.filter(function (r) { return r.started; }).length;
+    var inProg = emps.filter(function (r) { return r.status === "In Progress"; }).length;
+    var completed = emps.filter(function (r) { return r.status === "Completed"; }).length;
+    var avg = total ? Math.round(emps.reduce(function (a, r) { return a + r.overall; }, 0) / total) : 0;
+    var activeToday = emps.filter(function (r) { return isToday(r.lastActive); }).length;
+    var pending = emps.reduce(function (a, r) { return a + r.pending; }, 0);
+    return { team: team, total: total, started: started, inProg: inProg, completed: completed, avg: avg, activeToday: activeToday, pending: pending };
+  }
+  function renderTeams() {
+    var rows = filteredRows();
+    var f = filterVals();
+    // Which teams to show: the canonical three + any team that appears in data,
+    // narrowed to the team filter when one is chosen.
+    var teams = uniqueSorted(CANON_TEAMS.concat(S.rows.map(function (r) { return r.team; })));
+    if (f.team) teams = teams.filter(function (t) { return t === f.team; });
+
+    var stat = function (label, val, warn) {
+      return '<div class="epd-stat"><span class="epd-dim">' + esc(label) + '</span><b' + (warn ? ' class="epd-warnnum"' : '') + '>' + esc(val) + '</b></div>';
+    };
+    var html = teams.map(function (t) {
+      var a = teamAggregate(t, rows);
+      return '<div class="epd-team">' +
+        '<div class="epd-team-head"><span class="epd-team-name">' + esc(t) + '</span>' +
+          (a.activeToday ? '<span class="epd-team-badge">' + a.activeToday + ' active today</span>' : '') + '</div>' +
+        '<div class="epd-team-stats">' +
+          stat("Employees", a.total) + stat("Started", a.started) +
+          stat("In Progress", a.inProg) + stat("Completed", a.completed) +
+          stat("Active Today", a.activeToday) + stat("Pending Reviews", a.pending, a.pending > 0) +
+        '</div>' +
+        '<div class="epd-team-prog"><div class="epd-team-prog-top"><span>Average Progress</span><span>' + a.avg + '%</span></div>' +
+          bar(a.avg, a.avg >= 100) + '</div>' +
+        '<div class="epd-team-act"><button type="button" class="epd-btn" data-team="' + esc(t) + '"' +
+          (a.total ? '' : ' disabled title="No employees have selected this team yet"') + '>View Team →</button></div>' +
+      '</div>';
+    }).join("");
+
+    setView('<div class="epd-view-title"><h2>Teams</h2><span class="epd-sub">' + teams.length + ' teams · ' + rows.length + ' employees</span></div>' +
+      (teams.length ? '<div class="epd-teams">' + html + '</div>'
+        : emptyState("🏷️", "No teams match the current filters.")));
+  }
+
+  /* ============================================================
+     VIEW 2 — TEAM DETAILS (employees of one team)
+     ============================================================ */
+  function renderTeamDetail(team) {
+    var rows = filteredRows(true).filter(function (r) { return r.team === team; })
+      .sort(function (a, b) { return b.overall - a.overall || a.name.localeCompare(b.name); });
+
+    var head = '<div class="epd-view-title"><h2>' + esc(team) + '</h2><span class="epd-sub">' + rows.length + ' employees</span></div>';
+
+    if (!rows.length) { setView(head + emptyState("👥", "No employees in this team match the current filters.")); return; }
+
+    var body = rows.map(function (r) {
+      var cur = [r.currentModule, r.currentLesson].filter(function (v) { return v && v !== NA; });
+      return '<tr class="epd-clickrow" data-emp="' + esc(r.id) + '" tabindex="0" role="button">' +
+        '<td><span class="epd-name"><span class="epd-avatar">' + esc(initials(r.name)) + '</span>' + esc(r.name) + '</span></td>' +
+        '<td>' + statusChip(r.status) + '</td>' +
+        '<td class="epd-progcell"><span class="epd-progwrap">' + bar(r.overall, r.overall >= 100) + '<span class="epd-progtxt">' + r.overall + '%</span></span></td>' +
+        '<td class="epd-dim">' + esc(r.currentModule) + '</td>' +
+        '<td class="epd-dim">' + esc(r.currentLesson) + '</td>' +
+        '<td class="epd-dim">' + esc(r.currentSection) + '</td>' +
+        '<td>' + r.doneLessons + ' / ' + r.totalLessons + '</td>' +
+        '<td class="epd-dim" title="' + esc(fmtDateTime(r.lastActive)) + '"><bdi>' + esc(timeAgo(r.lastActive)) + '</bdi></td>' +
+        '<td>' + (r.pending > 0 ? '<span class="epd-badge-warn">' + r.pending + '</span>' : '<span class="epd-dim">0</span>') + '</td>' +
+        '<td><button type="button" class="epd-btn epd-btn-ghost epd-btn-sm" data-emp="' + esc(r.id) + '">View Details</button></td>' +
+      '</tr>';
+    }).join("");
+
+    setView(head +
+      '<div class="epd-tablewrap"><table class="epd-table"><thead><tr>' +
+        '<th>Employee</th><th>Status</th><th>Overall Progress</th><th>Current Module</th><th>Current Lesson</th>' +
+        '<th>Current Section</th><th>Lessons</th><th>Last Activity</th><th>Pending</th><th></th>' +
+      '</tr></thead><tbody>' + body + '</tbody></table></div>');
+  }
+
+  /* ============================================================
+     VIEW 3 — EMPLOYEE DETAILS (Modules → Lessons → Sections → KC/Assignment)
+     ============================================================ */
+  // Index this employee's events by section_id and by type (fast lookups).
+  function buildEventIndex(empId) {
+    var idx = { bySection: {}, byLessonType: {} };
+    activityFor(empId).forEach(function (e) {
+      if (e.section_id) { (idx.bySection[e.section_id] = idx.bySection[e.section_id] || []).push(e); }
+      var k = (e.lesson_id || "") + "|" + e.event_type;
+      (idx.byLessonType[k] = idx.byLessonType[k] || []).push(e);
+    });
+    return idx;
+  }
+  function latest(list) {
+    if (!list || !list.length) return null;
+    return list.slice().sort(function (a, b) { return new Date(b.created_at) - new Date(a.created_at); })[0];
+  }
+
+  function deriveSection(part, evIdx) {
+    var contentSid = part.id + ":content";
+    var kcSid = part.id + ":kc";
+    var cEvents = evIdx.bySection[contentSid] || [];
+    var opened = cEvents.some(function (e) { return e.event_type === "section_opened"; });
+    var completedEv = latest(cEvents.filter(function (e) { return e.event_type === "section_completed"; }));
+    var completed = !!completedEv;
+    var timeSpent = cEvents.filter(function (e) { return e.event_type === "section_completed"; })
+      .reduce(function (a, e) { return a + (Number(e.time_spent) || 0); }, 0);
+
+    var status = completed ? "Completed" : (opened ? "In Progress" : "Not Started");
+    var kc = part.knowledgeCheck && (part.knowledgeCheck.question || part.knowledgeCheck.type) ? part.knowledgeCheck : null;
+    var kcResultEv = kc ? latest((evIdx.bySection[kcSid] || []).filter(function (e) { return e.event_type === "kc_result"; })) : null;
+
+    return {
+      id: part.id, title: partTitle(part), status: status,
+      opened: opened, completed: completed, completedAt: completedEv ? completedEv.created_at : null,
+      timeSpent: timeSpent, kc: kc, kcResultEv: kcResultEv
+    };
+  }
+
+  function kcResultChip(sec, resp) {
+    // Prefer the reviewed response row; fall back to the auto-graded event.
+    if (resp) {
+      var rs = String(resp.review_status || "");
+      if (/pending|revision/i.test(rs)) return chip(rs || "Pending Review", "prog");
+      if (resp.is_correct === true) return chip("Correct", "done");
+      if (resp.is_correct === false) return chip("Incorrect", "warn");
+      if (rs) return chip(rs, "done");
+    }
+    if (sec.kcResultEv) {
+      var st = sec.kcResultEv.status;
+      if (st === "correct") return chip("Correct", "done");
+      if (st === "incorrect") return chip("Incorrect", "warn");
+      return chip("Submitted", "prog");
+    }
+    return sec.kc ? chip("Not attempted", "ns") : '';
+  }
+
+  function renderKcDetail(sec, resp) {
+    if (!sec.kc) return '';
+    var kv = function (l, v) { return '<div class="epd-kv"><span class="epd-kv-l">' + esc(l) + '</span><span class="epd-kv-v">' + v + '</span></div>'; };
+    var question = (resp && resp.question) || sec.kc.question || sec.kc.scenario || sec.kc.prompt || NA;
+    var rtype = (resp && resp.response_type) || sec.kc.type || NA;
+    var answer, submittedAt, score, feedback, fileLink;
+    if (resp) {
+      answer = resp.text_answer ? esc(resp.text_answer)
+        : (resp.file_name ? esc(resp.file_name) : (resp.is_correct != null ? (resp.correct_answer ? "Selected option" : "Answered") : NA));
+      submittedAt = fmtDateTime(resp.submitted_at);
+      score = resp.score ? esc(resp.score) : (resp.is_correct === true ? "100%" : (resp.is_correct === false ? "0%" : NA));
+      feedback = resp.feedback ? esc(resp.feedback) : NA;
+      var link = resp.file_url || resp.document_url || "";
+      fileLink = link ? '<a href="' + esc(link) + '" target="_blank" rel="noopener">Open file ↗</a>' : NA;
+    } else {
+      answer = NA; submittedAt = (sec.kcResultEv ? fmtDateTime(sec.kcResultEv.created_at) : NA);
+      score = (sec.kcResultEv && sec.kcResultEv.score) ? esc(sec.kcResultEv.score) : NA; feedback = NA; fileLink = NA;
+    }
+    return '<div class="epd-sec-kc"><div class="epd-kc-q">🧠 ' + esc(question) + '</div>' +
+      '<div class="epd-kc-grid">' +
+        kv("Response Type", esc(rtype)) +
+        kv("Result", kcResultChip(sec, resp) || NA) +
+        kv("Employee Answer", '<span class="epd-kc-ans">' + answer + '</span>') +
+        kv("Submitted", esc(submittedAt)) +
+        kv("Score", esc(score)) +
+        kv("Feedback", feedback) +
+        kv("Document / File", fileLink) +
+      '</div></div>';
+  }
+
+  var SEC_ICON = { "Completed": "✓", "In Progress": "○", "Not Started": "—", "Locked": "🔒" };
+  function renderSections(lesson, evIdx, kcByCheck, lessonStarted) {
+    var parts = partsOf(lesson);
+    if (!parts.length) return '<p class="epd-none">No sections in this lesson.</p>';
+    var out = parts.map(function (part) {
+      var sec = deriveSection(part, evIdx);
+      // A section the employee never reached in a lesson they never started reads as Locked.
+      if (sec.status === "Not Started" && !lessonStarted) sec.status = "Locked";
+      var resp = sec.kc ? kcByCheck[sec.kc.id] : null;
+      var meta = [];
+      meta.push(sec.opened ? "Opened" : "Not opened");
+      meta.push(sec.completed ? "Completed " + fmtDate(sec.completedAt) : "Not completed");
+      if (sec.timeSpent) meta.push("Time: " + fmtDuration(sec.timeSpent));
+      if (sec.kc) meta.push("Knowledge Check");
+      return '<div class="epd-sec">' +
+        '<div class="epd-sec-head"><span class="epd-sec-ico">' + (SEC_ICON[sec.status] || "—") + '</span>' +
+          '<span class="epd-sec-main"><span class="epd-sec-title">' + esc(sec.title) + '</span>' +
+          '<span class="epd-sec-meta">' + meta.map(esc).join(' · ') + '</span></span>' +
+          statusChip(sec.status) + '</div>' +
+        renderKcDetail(sec, resp) +
+      '</div>';
+    }).join("");
+    return '<div class="epd-secs">' + out + '</div>';
+  }
+
+  function assignmentPanel(lesson, empId) {
+    var asg = lesson.assignment;
+    if (!asg || !(asg.title || asg.status || asg.instructions)) return '';
+    var subs = subsFor(empId).filter(function (s) { return s.lessonId === lesson.id; })
+      .sort(function (a, b) { return new Date(b.createdAt) - new Date(a.createdAt); });
+    var sub = subs[0];
+    var title = asg.title || "Assignment";
+    var kv = function (l, v) { return '<div class="epd-kv"><span class="epd-kv-l">' + esc(l) + '</span><span class="epd-kv-v">' + v + '</span></div>'; };
+
+    if (!sub) {
+      return '<div class="epd-asg"><div class="epd-asg-top"><span class="epd-asg-title">📎 ' + esc(title) + '</span>' + chip("Not Submitted", "ns") + '</div>' +
+        '<p class="epd-none">No submission from this employee yet.</p></div>';
+    }
+    var link = sub.submissionLink || "";
+    var linkHtml = link ? '<a href="' + esc(link) + '" target="_blank" rel="noopener">Open submission ↗</a>'
+      : (sub.textAnswer ? '<span class="epd-dim">Text answer provided</span>' : NA);
+    var rev = sub.status || "Pending Review";
+    var revSlug = /needs revision/i.test(rev) ? "warn" : (/pending/i.test(rev) ? "prog" : "done");
+
+    return '<div class="epd-asg" data-sub="' + esc(sub.id) + '">' +
+      '<div class="epd-asg-top"><span class="epd-asg-title">📎 ' + esc(sub.assignmentTitle || title) + '</span>' + chip(rev, revSlug) + '</div>' +
+      '<div class="epd-asg-grid">' +
+        kv("Submitted", esc(fmtDateTime(sub.createdAt))) +
+        kv("File / Link", linkHtml) +
+        kv("Score", sub.score ? esc(sub.score) : NA) +
+        kv("Feedback", sub.feedback ? esc(sub.feedback) : NA) +
+      '</div>' +
+      '<div class="epd-asg-actions">' +
+        '<input type="text" data-asg-score placeholder="Score" style="width:80px" value="' + esc(sub.score || "") + '" />' +
+        '<input type="text" data-asg-feedback placeholder="Feedback…" style="min-width:180px;flex:1" value="' + esc(sub.feedback || "") + '" />' +
+        '<button type="button" class="epd-btn epd-btn-sm" data-asg-act="reviewed">Mark Reviewed</button>' +
+        '<button type="button" class="epd-btn epd-btn-ghost epd-btn-sm" data-asg-act="revision">Needs Revision</button>' +
+        '<span class="epd-asg-msg" data-asg-msg></span>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function lessonNode(lesson, empId, evIdx, kcByCheck) {
+    var prog = progressFor(empId).find(function (p) { return p.lesson_id === lesson.id; }) || {};
+    var lessonStarted = prog.status === "completed" || prog.status === "in-progress";
+    var st = prog.status === "completed" ? "Completed" : (prog.status === "in-progress" ? "In Progress" : "Not Started");
+    var parts = partsOf(lesson);
+    var doneSecs = parts.filter(function (part) { return deriveSection(part, evIdx).completed; }).length;
+    var curSection = (empId && lesson.id === (S.rows.find(function (r) { return r.id === empId; }) || {})._p.current_lesson_id)
+      ? ((S.rows.find(function (r) { return r.id === empId; }) || {})._p.current_section_title || NA) : NA;
+    var asg = lesson.assignment;
+    var subForLesson = subsFor(empId).filter(function (s) { return s.lessonId === lesson.id; })[0];
+    var asgStatus = !asg || !(asg.title || asg.status) ? "None" : (subForLesson ? (subForLesson.status || "Submitted") : "Not Submitted");
+
+    var okey = empId + "|" + lesson.id;
+    var isOpen = !!open.lessons[okey];
+
+    var sub = [
+      chip(st, STATUS_SLUG[st]),
+      '<span class="epd-dim">' + doneSecs + ' / ' + parts.length + ' sections</span>',
+      '<span class="epd-dim">Started ' + esc(fmtDate(prog.started_at)) + '</span>',
+      '<span class="epd-dim">Completed ' + esc(fmtDate(prog.completed_at)) + '</span>',
+      '<span class="epd-dim">Assignment: ' + esc(asgStatus) + '</span>'
+    ].join(' ');
+
+    return '<div class="epd-lnode' + (isOpen ? ' is-open' : '') + '" data-lesson-node="' + esc(okey) + '">' +
+      '<div class="epd-lnode-head" data-toggle-lesson="' + esc(okey) + '">' +
+        '<span class="epd-caret">▶</span>' +
+        '<span class="epd-node-main"><span class="epd-node-title">L' + esc(lesson.lessonNumber || "") + ' — ' + esc(lesson.lessonTitle || "Lesson") + '</span>' +
+        '<span class="epd-node-sub">' + sub + '</span></span>' +
+      '</div>' +
+      '<div class="epd-lnode-body">' +
+        (isOpen ? (
+          '<div class="epd-kv" style="margin:6px 0 2px"><span class="epd-kv-l">Current Section</span><span class="epd-kv-v">' + esc(curSection) + '</span></div>' +
+          renderSections(lesson, evIdx, kcByCheck, lessonStarted) +
+          assignmentPanel(lesson, empId)
+        ) : '') +
+      '</div>' +
+    '</div>';
+  }
+
+  function moduleNode(mod, empId, evIdx, kcByCheck) {
+    var lessons = lessonsOfModule(mod.academyKey, mod.id);
+    var prog = progressFor(empId);
+    var doneIds = {}; prog.forEach(function (p) { if (p.status === "completed") doneIds[p.lesson_id] = 1; });
+    var inProgIds = {}; prog.forEach(function (p) { if (p.status === "in-progress") inProgIds[p.lesson_id] = 1; });
+    var total = lessons.length;
+    var done = lessons.filter(function (l) { return doneIds[l.id]; }).length;
+    var anyStarted = lessons.some(function (l) { return doneIds[l.id] || inProgIds[l.id]; });
+    var pct = total ? Math.round(done / total * 100) : 0;
+    var isCurrent = empId && mod.id === (S.rows.find(function (r) { return r.id === empId; }) || {})._p.current_module_id;
+    var st = total === 0 ? "Not Started" : (done >= total ? "Completed" : ((anyStarted || isCurrent) ? "In Progress" : "Not Started"));
+    var lastEv = latest(activityFor(empId).filter(function (e) { return e.module_id === mod.id; }));
+
+    var okey = empId + "|" + mod.id;
+    var isOpen = !!open.modules[okey];
+
+    var body = isOpen ? (total ? lessons.map(function (l) { return lessonNode(l, empId, evIdx, kcByCheck); }).join("")
+      : '<p class="epd-none">No published lessons in this module.</p>') : '';
+
+    return '<div class="epd-node' + (isOpen ? ' is-open' : '') + '" data-module-node="' + esc(okey) + '">' +
+      '<div class="epd-node-head" data-toggle-module="' + esc(okey) + '">' +
+        '<span class="epd-caret">▶</span>' +
+        '<span class="epd-node-main"><span class="epd-node-title">M' + esc(mod.moduleNumber || "") + ' — ' + esc(mod.moduleTitle || "Module") + ' ' + statusChip(st) + '</span>' +
+        '<span class="epd-node-sub"><span>' + done + ' / ' + total + ' lessons</span><span>' + pct + '%</span>' +
+          '<span>Last activity: ' + esc(lastEv ? timeAgo(lastEv.created_at) : "Never") + '</span></span></span>' +
+        '<span class="epd-node-prog">' + bar(pct, pct >= 100) + '</span>' +
+      '</div>' +
+      '<div class="epd-node-body">' + body + '</div>' +
+    '</div>';
+  }
+
+  function renderEmployeeDetail(empId) {
     var r = S.rows.find(function (x) { return x.id === empId; });
-    if (!r) return;
-    var drawer = $("epDrawer"), body = $("epDrawerBody");
-    body.innerHTML =
-      '<div class="ep-prof-head">' +
-        '<span class="ep-avatar ep-avatar-lg" aria-hidden="true">' + esc((r.name[0] || "?").toUpperCase()) + '</span>' +
-        '<div><h2 class="ep-prof-name">' + esc(r.name) + '</h2>' +
-        '<div class="ep-prof-meta">' + esc(r.team) + ' · ' + esc(r.academyName) + ' · ' + statusPill(r.status) + '</div></div>' +
+    if (!r) { setView(emptyState("🔍", "Employee not found.")); return; }
+    var p = r._p;
+    var evIdx = buildEventIndex(empId);
+    var kcByCheck = {}; kcsFor(empId).forEach(function (k) { if (k.knowledge_check_id) kcByCheck[k.knowledge_check_id] = k; });
+    var mods = modulesOf(r.academyKey);
+
+    var kv = function (l, v) { return '<div class="epd-kv"><span class="epd-kv-l">' + esc(l) + '</span><span class="epd-kv-v">' + esc(v) + '</span></div>'; };
+    var head = '<div class="epd-emp-head">' +
+      '<div class="epd-emp-id"><span class="epd-avatar" style="width:44px;height:44px;font-size:17px">' + esc(initials(r.name)) + '</span>' +
+        '<div><h2 class="epd-emp-name">' + esc(r.name) + '</h2>' +
+        '<div class="epd-emp-meta">' + esc(r.team) + ' · ' + esc(r.academyName) + ' · ' + statusChip(r.status) + '</div></div></div>' +
+      '<div class="epd-emp-grid">' +
+        kv("First Seen", fmtDate(r.firstSeen)) +
+        kv("Last Active", timeAgo(r.lastActive)) +
+        kv("Time in Academy", fmtDuration(r.totalTime)) +
+        kv("Current Module", r.currentModule) +
+        kv("Current Lesson", r.currentLesson) +
+        kv("Current Section", r.currentSection) +
       '</div>' +
-      '<div class="ep-prof-grid">' +
-        infoTile("Start Date", fmtDate(r.startDate)) +
-        infoTile("Last Active", timeAgo(r.lastActive)) +
-        infoTile("Current Module", r.currentModule) +
-        infoTile("Current Lesson", r.currentLesson) +
-        infoTile("Current Section", r.currentSection) +
-        infoTile("Pending Assignments", String(r.pending)) +
-      '</div>' +
-      '<div class="ep-prof-overall"><div class="ep-prof-overall-top"><span>Overall Progress</span><strong>' + r.overall + '%</strong></div>' +
-        pctBar(r.overall) + '<span class="ep-mod-sub">' + r.doneLessons + ' / ' + r.totalLessons + ' lessons · KC avg ' + (r.kcAvg == null ? "—" : r.kcAvg + "%") + '</span></div>' +
-      section("Module Progress", '<div class="ep-mods">' + moduleProgressList(r) + '</div>') +
-      section("Lesson Progress", table(["Lesson", "Status", "Started", "Completed", "%"], lessonRows(r))) +
-      section("Section Progress", table(["Section", "Status", "Completion Time", "Attempts", "Time Spent"], sectionRows(r)) +
-        '<p class="ep-note">Section-level timing & attempts are recorded on the employee device and are not yet synced to the server.</p>') +
-      section("Knowledge Check History", table(["Question", "Type", "Result", "Attempts", "Submitted", "Score"], kcHistory(r))) +
-      section("Assignments", table(["Assignment", "Status", "Submitted", "Score", "Feedback", "File / Link"], assignmentRows(r))) +
-      section("Activity Timeline", timeline(r));
-    drawer.classList.add("open");
-    drawer.setAttribute("aria-hidden", "false");
-    $("epDrawerScrim").hidden = false;
-    document.body.style.overflow = "hidden";
-  }
-  function infoTile(label, val) { return '<div class="ep-info"><span class="ep-info-label">' + esc(label) + '</span><span class="ep-info-val">' + esc(val) + '</span></div>'; }
-  function section(title, inner) { return '<section class="ep-sec"><h3 class="ep-sec-title">' + esc(title) + '</h3>' + inner + '</section>'; }
-  function table(cols, bodyHtml) {
-    return '<div class="ep-subtable-wrap"><table class="ep-subtable"><thead><tr>' +
-      cols.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join("") + '</tr></thead><tbody>' + bodyHtml + '</tbody></table></div>';
-  }
-  function closeProfile() {
-    var drawer = $("epDrawer");
-    drawer.classList.remove("open");
-    drawer.setAttribute("aria-hidden", "true");
-    $("epDrawerScrim").hidden = true;
-    document.body.style.overflow = "";
+      '<div class="epd-emp-overall"><div class="epd-emp-overall-top"><span>Overall Progress</span><span>' + r.overall + '% · ' + r.doneLessons + ' / ' + r.totalLessons + ' lessons</span></div>' +
+        bar(r.overall, r.overall >= 100) + '</div>' +
+    '</div>';
+
+    var tree = mods.length
+      ? '<div class="epd-tree">' + mods.map(function (m) { return moduleNode(m, empId, evIdx, kcByCheck); }).join("") + '</div>'
+      : emptyState("📚", "No modules found for this academy.");
+
+    var legend = '<div class="epd-legend">' +
+      '<span>✓ Completed</span><span>○ In Progress</span><span>— Not Started</span><span>🔒 Locked</span></div>';
+
+    setView('<div class="epd-view-title"><h2>Employee</h2><span class="epd-sub">Modules → Lessons → Sections → Knowledge Check / Assignment</span></div>' +
+      head + tree + legend);
   }
 
-  /* ---------- wire up ---------- */
-  function wire() {
-    ["epSearch", "epTeam", "epAcademy", "epStatus", "epModule", "epLesson", "epProgress", "epAssign"].forEach(function (id) {
-      var el = $(id); if (el) el.addEventListener(el.tagName === "INPUT" && el.type === "text" ? "input" : "change", renderTable);
+  /* ============================================================
+     Breadcrumbs + view routing
+     ============================================================ */
+  function crumb(label, action, current) {
+    if (current) return '<span class="epd-crumb is-current">' + esc(label) + '</span>';
+    return '<button type="button" class="epd-crumb" data-nav="' + action + '">' + esc(label) + '</button>';
+  }
+  function renderCrumbs() {
+    var parts = [crumb("Dashboard", "teams", view.name === "teams")];
+    if (view.name === "team" || view.name === "employee") {
+      parts.push(crumb(view.team || "Team", "team", view.name === "team"));
+    }
+    if (view.name === "employee") {
+      var r = S.rows.find(function (x) { return x.id === view.empId; });
+      parts.push(crumb(r ? r.name : "Employee", "employee", true));
+    }
+    $("epCrumbs").innerHTML = parts.join('<span class="epd-crumb-sep">→</span>');
+  }
+  function setView(html) { $("epView").innerHTML = html; }
+  function emptyState(ico, msg) { return '<div class="epd-empty"><span class="epd-empty-ico">' + ico + '</span>' + esc(msg) + '</div>'; }
+
+  function route() {
+    renderCrumbs();
+    if (view.name === "team" && view.team) renderTeamDetail(view.team);
+    else if (view.name === "employee" && view.empId) renderEmployeeDetail(view.empId);
+    else { view.name = "teams"; renderTeams(); }
+  }
+  function goTeams() { view = { name: "teams", team: null, empId: null }; route(); }
+  function goTeam(team) { view = { name: "team", team: team, empId: null }; route(); }
+  function goEmployee(empId) {
+    var r = S.rows.find(function (x) { return x.id === empId; });
+    view = { name: "employee", team: (r ? r.team : view.team), empId: empId }; route();
+  }
+
+  /* ============================================================
+     Assignment review (the only write — admin action from the panel)
+     ============================================================ */
+  function reviewSubmission(box, action) {
+    var subId = box.getAttribute("data-sub");
+    var msg = box.querySelector("[data-asg-msg]");
+    var score = (box.querySelector("[data-asg-score]") || {}).value || "";
+    var feedback = (box.querySelector("[data-asg-feedback]") || {}).value || "";
+    var status = action === "revision" ? "Needs Revision" : "Reviewed";
+    if (msg) { msg.textContent = "Saving…"; msg.style.color = ""; }
+    var patch = { status: status, score: score, feedback: feedback, reviewedAt: new Date().toISOString() };
+    SB.updateSubmission(subId, patch).then(function () {
+      // Reflect locally so the view + summary update immediately (no reload).
+      var s = S.subs.find(function (x) { return x.id === subId; });
+      if (s) { s.status = status; s.score = score; s.feedback = feedback; s.reviewedAt = patch.reviewedAt; }
+      computeRows(); renderCards();
+      if (msg) { msg.textContent = "Saved ✓"; msg.style.color = "var(--epd-ok)"; }
+      // Re-render the employee view so the chip/grid refresh.
+      if (view.name === "employee") route();
+    }).catch(function () {
+      if (msg) { msg.textContent = "Save failed — retry"; msg.style.color = "var(--epd-warn)"; }
     });
-    var at = $("epActiveToday"); if (at) at.addEventListener("change", renderTable);
+  }
+
+  /* ============================================================
+     Wiring
+     ============================================================ */
+  function onFilterChange() {
+    // Filters must work without reload — just re-render the active view.
+    route();
+  }
+  function wire() {
+    ["epSearch", "epTeam", "epAcademy", "epModule", "epStatus", "epProgress"].forEach(function (id) {
+      var el = $(id); if (!el) return;
+      el.addEventListener(el.tagName === "INPUT" ? "input" : "change", onFilterChange);
+    });
+    ["epActiveToday", "epPending"].forEach(function (id) { var el = $(id); if (el) el.addEventListener("change", onFilterChange); });
     var refresh = $("epRefresh"); if (refresh) refresh.addEventListener("click", reload);
-    $("epList").addEventListener("click", function (e) { var tr = e.target.closest(".ep-row"); if (tr) openProfile(tr.getAttribute("data-emp")); });
-    $("epList").addEventListener("keydown", function (e) { if (e.key === "Enter") { var tr = e.target.closest(".ep-row"); if (tr) openProfile(tr.getAttribute("data-emp")); } });
-    $("epDrawerClose").addEventListener("click", closeProfile);
-    $("epDrawerScrim").addEventListener("click", closeProfile);
-    document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeProfile(); });
+
+    var crumbs = $("epCrumbs");
+    crumbs.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-nav]"); if (!b) return;
+      var nav = b.getAttribute("data-nav");
+      if (nav === "teams") goTeams();
+      else if (nav === "team" && view.team) goTeam(view.team);
+    });
+
+    var vroot = $("epView");
+    vroot.addEventListener("click", function (e) {
+      var t = e.target;
+      // Teams view: View Team
+      var teamBtn = t.closest("[data-team]"); if (teamBtn && !teamBtn.disabled) { goTeam(teamBtn.getAttribute("data-team")); return; }
+      // Team view: open employee
+      var empBtn = t.closest("[data-emp]"); if (empBtn) { goEmployee(empBtn.getAttribute("data-emp")); return; }
+      // Module toggle
+      var modTog = t.closest("[data-toggle-module]");
+      if (modTog) { var mk = modTog.getAttribute("data-toggle-module"); open.modules[mk] = !open.modules[mk]; route(); return; }
+      // Lesson toggle
+      var lesTog = t.closest("[data-toggle-lesson]");
+      if (lesTog) { var lk = lesTog.getAttribute("data-toggle-lesson"); open.lessons[lk] = !open.lessons[lk]; route(); return; }
+      // Assignment review actions
+      var asgBtn = t.closest("[data-asg-act]");
+      if (asgBtn) { var box = asgBtn.closest("[data-sub]"); if (box) reviewSubmission(box, asgBtn.getAttribute("data-asg-act")); return; }
+    });
+    vroot.addEventListener("keydown", function (e) {
+      if (e.key !== "Enter") return;
+      var row = e.target.closest("[data-emp]"); if (row) { e.preventDefault(); goEmployee(row.getAttribute("data-emp")); }
+    });
   }
 
   function reload() {
-    $("epList").innerHTML = '<tr><td colspan="11" class="ep-loading">Loading…</td></tr>';
-    loadAll().then(function () { computeRows(); renderCards(); populateFilterOptions(); renderTable(); })
-      .catch(function () { $("epList").innerHTML = '<tr><td colspan="11" class="ep-empty">Could not load data.</td></tr>'; });
+    setView('<div class="epd-loading">Loading live data from Supabase…</div>');
+    loadAll().then(function () {
+      computeRows(); renderCards(); populateFilterOptions(); route();
+    }).catch(function () {
+      setView(emptyState("⚠️", "Could not load data from Supabase. Check the connection and Refresh."));
+    });
   }
 
   document.addEventListener("DOMContentLoaded", function () {
-    if (!$("epList")) return; // not this page
+    if (!$("epView")) return; // not this page
     if (!isAdmin()) { try { location.replace("learning_path.html"); } catch (e) {} return; }
     if (typeof Identity !== "undefined" && Identity.applyNav) Identity.applyNav();
     wire();

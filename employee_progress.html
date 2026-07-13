@@ -1,19 +1,195 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="en" dir="ltr">
 <!--
-  Employee Progress Dashboard v1.0 — admin-only learning analytics.
-  Reads from Supabase (employee_profiles, learning_progress,
-  knowledge_check_responses, submissions, lesson_activity_log) once, then
-  filters/searches entirely client-side (employee_progress.js).
-  Admin guard: identity.js (employee_progress.html is an admin page).
+  Admin Learning Dashboard — management drill-down (admin only).
+  Hierarchy: Team → Employee → Module → Lesson → Section → Knowledge Check / Assignment.
+  Reads LIVE from Supabase only (employee_profiles, learning_progress,
+  knowledge_check_responses, submissions, lesson_activity_log) once, then does all
+  navigation / filtering / aggregation client-side (employee_progress.js).
+  Admin guard: identity.js + an explicit isAdmin() redirect (this is an admin page).
+  Does NOT touch the Learning Path, Content Manager, tracking logic, or identity.
 -->
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Employee Progress · Admin</title>
+  <title>Learning Dashboard · Admin</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="styles.css?v=ep-1" />
+  <link rel="stylesheet" href="styles.css?v=ep-2" />
   <script src="identity.js"></script>
+
+  <!-- Self-contained dashboard styles (scoped .epd-*, so no other page is affected). -->
+  <style>
+    .epd-wrap { --epd-line:#e6e8ee; --epd-soft:#f5f6fa; --epd-ink:#1f2430; --epd-dim:#6b7280;
+      --epd-brand:#2563eb; --epd-brand-soft:#eaf1ff; --epd-ok:#0e9f6e; --epd-ok-soft:#e3f7ef;
+      --epd-prog:#b45309; --epd-prog-soft:#fef3e2; --epd-lock:#8a91a0; --epd-lock-soft:#eef0f4;
+      --epd-warn:#b91c1c; --epd-warn-soft:#fdeaea; --epd-card:#fff; --epd-shadow:0 1px 2px rgba(20,25,40,.06),0 4px 14px rgba(20,25,40,.05); }
+    @media (prefers-color-scheme: dark) {
+      .epd-wrap { --epd-line:#2a2f3a; --epd-soft:#1b1f28; --epd-ink:#e9ecf2; --epd-dim:#9aa2b1;
+        --epd-brand:#5b8cff; --epd-brand-soft:#1a2540; --epd-ok:#34d399; --epd-ok-soft:#12362a;
+        --epd-prog:#f5b458; --epd-prog-soft:#3a2b10; --epd-lock:#8a91a0; --epd-lock-soft:#232833;
+        --epd-warn:#f87171; --epd-warn-soft:#3a1a1a; --epd-card:#141821; --epd-shadow:0 1px 2px rgba(0,0,0,.3); }
+    }
+    .epd-wrap { color:var(--epd-ink); }
+    .epd-wrap * { box-sizing:border-box; }
+
+    /* Summary cards */
+    .epd-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin:4px 0 18px; }
+    .epd-card { background:var(--epd-card); border:1px solid var(--epd-line); border-radius:14px; padding:14px 16px;
+      box-shadow:var(--epd-shadow); display:flex; flex-direction:column; gap:2px; }
+    .epd-card-val { font-size:26px; font-weight:800; line-height:1.1; letter-spacing:-.02em; }
+    .epd-card-lbl { font-size:12px; color:var(--epd-dim); font-weight:600; }
+    .epd-card.is-warn .epd-card-val { color:var(--epd-warn); }
+
+    /* Filters */
+    .epd-filters { display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; margin-bottom:16px; }
+    .epd-f { display:flex; flex-direction:column; gap:4px; }
+    .epd-f > label { font-size:11px; font-weight:700; color:var(--epd-dim); text-transform:uppercase; letter-spacing:.03em; }
+    .epd-f input[type=text], .epd-f select { height:38px; padding:0 10px; border:1px solid var(--epd-line); border-radius:9px;
+      background:var(--epd-card); color:var(--epd-ink); font-size:13px; min-width:140px; }
+    .epd-f-grow { flex:1 1 200px; }
+    .epd-f-grow input { width:100%; }
+    .epd-check { display:flex; align-items:center; gap:6px; height:38px; font-size:13px; font-weight:600; color:var(--epd-ink); cursor:pointer; }
+    .epd-spacer { flex:1 1 auto; }
+
+    /* Breadcrumbs */
+    .epd-crumbs { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin:2px 0 16px; font-size:13.5px; }
+    .epd-crumb { color:var(--epd-brand); background:none; border:0; padding:2px 2px; cursor:pointer; font-weight:600; font-size:13.5px; }
+    .epd-crumb:hover { text-decoration:underline; }
+    .epd-crumb.is-current { color:var(--epd-ink); cursor:default; font-weight:700; }
+    .epd-crumb.is-current:hover { text-decoration:none; }
+    .epd-crumb-sep { color:var(--epd-dim); }
+    .epd-back { display:inline-flex; align-items:center; gap:6px; margin-bottom:14px; background:var(--epd-card);
+      border:1px solid var(--epd-line); border-radius:9px; padding:7px 12px; font-size:13px; font-weight:600; color:var(--epd-ink); cursor:pointer; }
+    .epd-back:hover { background:var(--epd-soft); }
+
+    /* Section wrappers */
+    .epd-view-title { display:flex; align-items:baseline; gap:10px; margin:0 0 12px; }
+    .epd-view-title h2 { font-size:19px; margin:0; font-weight:800; letter-spacing:-.01em; }
+    .epd-view-title .epd-sub { font-size:13px; color:var(--epd-dim); }
+
+    /* Team grid */
+    .epd-teams { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px; }
+    .epd-team { background:var(--epd-card); border:1px solid var(--epd-line); border-radius:16px; padding:18px; box-shadow:var(--epd-shadow);
+      display:flex; flex-direction:column; gap:14px; }
+    .epd-team-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .epd-team-name { font-size:17px; font-weight:800; }
+    .epd-team-badge { font-size:12px; font-weight:700; color:var(--epd-brand); background:var(--epd-brand-soft); border-radius:999px; padding:3px 10px; }
+    .epd-team-stats { display:grid; grid-template-columns:1fr 1fr; gap:8px 14px; }
+    .epd-stat { display:flex; align-items:baseline; justify-content:space-between; gap:8px; font-size:13px; }
+    .epd-stat b { font-size:15px; font-weight:800; }
+    .epd-stat .epd-warnnum { color:var(--epd-warn); }
+    .epd-team-prog { display:flex; flex-direction:column; gap:5px; }
+    .epd-team-prog-top { display:flex; justify-content:space-between; font-size:12px; color:var(--epd-dim); font-weight:700; }
+    .epd-team-act { margin-top:2px; }
+
+    /* Progress bar */
+    .epd-bar { position:relative; height:8px; border-radius:999px; background:var(--epd-lock-soft); overflow:hidden; }
+    .epd-bar > span { position:absolute; inset:0 auto 0 0; background:linear-gradient(90deg,var(--epd-brand),#7aa2ff); border-radius:999px; }
+    .epd-bar.is-done > span { background:linear-gradient(90deg,var(--epd-ok),#5ad1a4); }
+
+    /* Buttons */
+    .epd-btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; border-radius:9px; border:1px solid var(--epd-brand);
+      background:var(--epd-brand); color:#fff; font-size:13px; font-weight:700; padding:8px 14px; cursor:pointer; }
+    .epd-btn:hover { filter:brightness(1.06); }
+    .epd-btn-ghost { background:var(--epd-card); color:var(--epd-ink); border-color:var(--epd-line); }
+    .epd-btn-ghost:hover { background:var(--epd-soft); }
+    .epd-btn-sm { padding:5px 10px; font-size:12px; }
+
+    /* Tables */
+    .epd-tablewrap { overflow-x:auto; border:1px solid var(--epd-line); border-radius:14px; background:var(--epd-card); box-shadow:var(--epd-shadow); }
+    table.epd-table { width:100%; border-collapse:collapse; font-size:13px; min-width:760px; }
+    .epd-table th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--epd-dim);
+      font-weight:700; padding:11px 12px; border-bottom:1px solid var(--epd-line); background:var(--epd-soft); white-space:nowrap; }
+    .epd-table td { padding:11px 12px; border-bottom:1px solid var(--epd-line); vertical-align:middle; }
+    .epd-table tr:last-child td { border-bottom:0; }
+    .epd-table tbody tr.epd-clickrow { cursor:pointer; }
+    .epd-table tbody tr.epd-clickrow:hover { background:var(--epd-soft); }
+    .epd-name { display:flex; align-items:center; gap:9px; font-weight:600; }
+    .epd-avatar { width:28px; height:28px; border-radius:50%; background:var(--epd-brand-soft); color:var(--epd-brand);
+      display:inline-flex; align-items:center; justify-content:center; font-weight:800; font-size:12px; flex:0 0 auto; }
+    .epd-dim { color:var(--epd-dim); }
+    .epd-progcell { min-width:140px; }
+    .epd-progwrap { display:flex; align-items:center; gap:8px; }
+    .epd-progwrap .epd-bar { flex:1; }
+    .epd-progtxt { font-size:12px; font-weight:700; min-width:34px; text-align:right; }
+    .epd-warnnum, .epd-badge-warn { color:var(--epd-warn); font-weight:800; }
+
+    /* Chips / status */
+    .epd-chip { display:inline-flex; align-items:center; gap:5px; border-radius:999px; padding:3px 10px; font-size:11.5px; font-weight:700; white-space:nowrap; }
+    .epd-chip-done { color:var(--epd-ok); background:var(--epd-ok-soft); }
+    .epd-chip-prog { color:var(--epd-prog); background:var(--epd-prog-soft); }
+    .epd-chip-ns { color:var(--epd-lock); background:var(--epd-lock-soft); }
+    .epd-chip-lock { color:var(--epd-lock); background:var(--epd-lock-soft); }
+    .epd-chip-inactive { color:var(--epd-dim); background:var(--epd-lock-soft); }
+    .epd-chip-warn { color:var(--epd-warn); background:var(--epd-warn-soft); }
+
+    /* Employee detail header */
+    .epd-emp-head { display:flex; gap:16px; align-items:flex-start; background:var(--epd-card); border:1px solid var(--epd-line);
+      border-radius:16px; padding:18px; box-shadow:var(--epd-shadow); margin-bottom:16px; flex-wrap:wrap; }
+    .epd-emp-id { display:flex; gap:12px; align-items:center; min-width:220px; }
+    .epd-emp-name { font-size:19px; font-weight:800; margin:0; }
+    .epd-emp-meta { font-size:13px; color:var(--epd-dim); margin-top:2px; }
+    .epd-emp-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px 18px; flex:1 1 340px; }
+    .epd-kv { display:flex; flex-direction:column; gap:1px; }
+    .epd-kv-l { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--epd-dim); }
+    .epd-kv-v { font-size:13.5px; font-weight:600; }
+    .epd-emp-overall { flex:1 1 100%; margin-top:4px; }
+    .epd-emp-overall-top { display:flex; justify-content:space-between; font-size:13px; font-weight:700; margin-bottom:5px; }
+
+    /* Drill-down tree (modules → lessons → sections) */
+    .epd-tree { display:flex; flex-direction:column; gap:10px; }
+    .epd-node { border:1px solid var(--epd-line); border-radius:13px; background:var(--epd-card); box-shadow:var(--epd-shadow); overflow:hidden; }
+    .epd-node-head { display:flex; align-items:center; gap:12px; padding:13px 15px; cursor:pointer; user-select:none; }
+    .epd-node-head:hover { background:var(--epd-soft); }
+    .epd-caret { width:16px; flex:0 0 auto; color:var(--epd-dim); transition:transform .15s; font-size:12px; }
+    .epd-node.is-open > .epd-node-head .epd-caret { transform:rotate(90deg); }
+    .epd-node-main { flex:1; min-width:0; }
+    .epd-node-title { font-weight:700; font-size:14.5px; display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+    .epd-node-sub { font-size:12px; color:var(--epd-dim); margin-top:3px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .epd-node-prog { width:120px; flex:0 0 auto; }
+    .epd-node-body { display:none; padding:4px 15px 14px 42px; }
+    .epd-node.is-open > .epd-node-body { display:block; }
+
+    /* Lesson (nested) */
+    .epd-lnode { border:1px solid var(--epd-line); border-radius:11px; margin-top:10px; overflow:hidden; background:var(--epd-card); }
+    .epd-lnode-head { display:flex; align-items:center; gap:11px; padding:11px 13px; cursor:pointer; }
+    .epd-lnode-head:hover { background:var(--epd-soft); }
+    .epd-lnode-body { display:none; padding:2px 13px 12px 36px; }
+    .epd-lnode.is-open > .epd-lnode-body { display:block; }
+    .epd-lnode.is-open > .epd-lnode-head .epd-caret { transform:rotate(90deg); }
+
+    /* Sections list */
+    .epd-secs { display:flex; flex-direction:column; gap:0; margin-top:8px; border:1px solid var(--epd-line); border-radius:10px; overflow:hidden; }
+    .epd-sec { border-bottom:1px solid var(--epd-line); }
+    .epd-sec:last-child { border-bottom:0; }
+    .epd-sec-head { display:flex; align-items:center; gap:11px; padding:10px 13px; }
+    .epd-sec-ico { width:20px; text-align:center; flex:0 0 auto; font-size:14px; }
+    .epd-sec-main { flex:1; min-width:0; }
+    .epd-sec-title { font-weight:600; font-size:13.5px; }
+    .epd-sec-meta { font-size:12px; color:var(--epd-dim); margin-top:2px; display:flex; gap:12px; flex-wrap:wrap; }
+    .epd-sec-kc { margin:0 13px 12px 44px; background:var(--epd-soft); border:1px solid var(--epd-line); border-radius:9px; padding:11px 13px; font-size:12.5px; }
+    .epd-kc-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:8px 16px; }
+    .epd-kc-q { font-weight:600; margin-bottom:8px; }
+    .epd-kc-ans { white-space:pre-wrap; word-break:break-word; }
+
+    /* Assignment box */
+    .epd-asg { margin-top:12px; border:1px solid var(--epd-line); border-radius:11px; background:var(--epd-soft); padding:13px 15px; }
+    .epd-asg-top { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:8px; }
+    .epd-asg-title { font-weight:700; font-size:13.5px; display:flex; align-items:center; gap:9px; }
+    .epd-asg-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px 16px; margin-bottom:10px; }
+    .epd-asg-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    .epd-asg-actions input { height:34px; padding:0 9px; border:1px solid var(--epd-line); border-radius:8px; background:var(--epd-card); color:var(--epd-ink); font-size:12.5px; }
+    .epd-asg-msg { font-size:12px; font-weight:700; }
+
+    /* Empty / loading */
+    .epd-empty { text-align:center; color:var(--epd-dim); padding:34px 16px; font-size:13.5px; }
+    .epd-empty-ico { font-size:26px; display:block; margin-bottom:8px; opacity:.7; }
+    .epd-loading { text-align:center; color:var(--epd-dim); padding:34px; font-size:13.5px; }
+    .epd-none { color:var(--epd-dim); font-size:12.5px; padding:8px 2px; }
+
+    .epd-legend { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--epd-dim); margin:10px 2px 0; }
+    .epd-legend span { display:inline-flex; align-items:center; gap:5px; }
+  </style>
 </head>
 <body>
 
@@ -65,7 +241,7 @@
           <span class="nav-ico" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           </span>
-          <span class="nav-label">Employee Progress</span>
+          <span class="nav-label">Learning Dashboard</span>
         </a>
       </nav>
 
@@ -81,39 +257,37 @@
 
     <!-- ============ MAIN CONTENT ============ -->
     <main class="content">
+      <div class="epd-wrap">
 
-      <a class="back-link" href="dashboard.html" aria-label="Back to Dashboard">← Dashboard</a>
+        <div class="page-head reveal">
+          <h1>Learning Dashboard</h1>
+          <p class="muted">Team → Employee → Module → Lesson → Section → Knowledge Check / Assignment. Live Supabase data — admin only.</p>
+        </div>
 
-      <div class="page-head reveal">
-        <h1>Employee Progress</h1>
-        <p class="muted">Monitor every employee's learning progress — data from Supabase, admin only.</p>
-      </div>
+        <!-- Global summary cards -->
+        <div class="epd-cards" id="epCards"></div>
 
-      <!-- Summary cards -->
-      <section class="reveal">
-        <div class="ep-cards" id="epCards"></div>
-      </section>
-
-      <!-- Filters -->
-      <section class="reveal">
-        <div class="ep-filters">
-          <div class="ep-filter ep-filter-grow">
-            <label for="epSearch">Search</label>
-            <input type="text" id="epSearch" placeholder="Employee name…" autocomplete="off" />
+        <!-- Global filters -->
+        <div class="epd-filters" id="epFilters">
+          <div class="epd-f epd-f-grow">
+            <label for="epSearch">Employee</label>
+            <input type="text" id="epSearch" placeholder="Search employee name…" autocomplete="off" />
           </div>
-          <div class="ep-filter"><label for="epTeam">Team</label>
+          <div class="epd-f"><label for="epTeam">Team</label>
             <select id="epTeam"><option value="">All Teams</option></select></div>
-          <div class="ep-filter"><label for="epAcademy">Academy</label>
+          <div class="epd-f"><label for="epAcademy">Academy</label>
             <select id="epAcademy"><option value="">All Academies</option></select></div>
-          <div class="ep-filter"><label for="epStatus">Status</label>
+          <div class="epd-f"><label for="epModule">Module</label>
+            <select id="epModule"><option value="">All Modules</option></select></div>
+          <div class="epd-f"><label for="epStatus">Status</label>
             <select id="epStatus">
               <option value="">All Statuses</option>
               <option value="Not Started">Not Started</option>
-              <option value="Learning">Learning</option>
+              <option value="In Progress">In Progress</option>
               <option value="Completed">Completed</option>
               <option value="Inactive">Inactive</option>
             </select></div>
-          <div class="ep-filter"><label for="epProgress">Progress</label>
+          <div class="epd-f"><label for="epProgress">Progress</label>
             <select id="epProgress">
               <option value="">Any</option>
               <option value="0">0%</option>
@@ -123,61 +297,27 @@
               <option value="75">75–99%</option>
               <option value="100">100%</option>
             </select></div>
-          <div class="ep-filter"><label for="epModule">Current Module</label>
-            <select id="epModule"><option value="">All Modules</option></select></div>
-          <div class="ep-filter"><label for="epLesson">Current Lesson</label>
-            <select id="epLesson"><option value="">All Lessons</option></select></div>
-          <div class="ep-filter"><label for="epAssign">Assignments</label>
-            <select id="epAssign">
-              <option value="">Any</option>
-              <option value="pending">Has pending review</option>
-              <option value="none">No pending</option>
-            </select></div>
-          <div class="ep-filter ep-filter-check">
-            <label class="ep-check"><input type="checkbox" id="epActiveToday" /> Active today</label>
-          </div>
-          <button type="button" class="btn btn-ghost" id="epRefresh">↻ Refresh</button>
+          <label class="epd-check"><input type="checkbox" id="epActiveToday" /> Active today</label>
+          <label class="epd-check"><input type="checkbox" id="epPending" /> Pending review</label>
+          <div class="epd-spacer"></div>
+          <button type="button" class="epd-btn epd-btn-ghost" id="epRefresh">↻ Refresh</button>
         </div>
-      </section>
 
-      <!-- Employee table -->
-      <section class="reveal">
-        <div class="ep-table-head">
-          <span class="ep-table-title">Employees</span>
-          <span class="ep-count" id="epCount">—</span>
-        </div>
-        <div class="ep-table-wrap">
-          <table class="ep-table" id="epTable">
-            <thead>
-              <tr>
-                <th>Employee</th><th>Team</th><th>Academy</th><th>Overall Progress</th>
-                <th>Current Module</th><th>Current Lesson</th><th>Current Section</th>
-                <th>KC Average</th><th>Pending</th><th>Last Activity</th><th>Status</th>
-              </tr>
-            </thead>
-            <tbody id="epList">
-              <tr><td colspan="11" class="ep-loading">Loading…</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+        <!-- Breadcrumbs -->
+        <nav class="epd-crumbs" id="epCrumbs" aria-label="Breadcrumb"></nav>
 
+        <!-- Drill-down view (swapped in place, no reload) -->
+        <div id="epView">
+          <div class="epd-loading">Loading live data from Supabase…</div>
+        </div>
+
+      </div>
     </main>
   </div>
-
-  <!-- ============ EMPLOYEE PROFILE DRAWER ============ -->
-  <div class="ep-drawer-scrim" id="epDrawerScrim" hidden></div>
-  <aside class="ep-drawer" id="epDrawer" aria-hidden="true" aria-label="Employee profile">
-    <div class="ep-drawer-bar">
-      <span class="ep-drawer-title">Employee Profile</span>
-      <button type="button" class="ep-drawer-close" id="epDrawerClose" aria-label="Close">✕</button>
-    </div>
-    <div class="ep-drawer-body" id="epDrawerBody"></div>
-  </aside>
 
   <script src="supabase.js"></script>
   <script src="academies.js"></script>
   <script src="script.js"></script>
-  <script src="employee_progress.js?v=ep-1"></script>
+  <script src="employee_progress.js?v=ep-2"></script>
 </body>
 </html>

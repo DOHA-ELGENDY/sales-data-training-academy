@@ -1912,12 +1912,16 @@ a.nav-item { color: #cdd8e6; }
 .blk-rte .rte { border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .blk-kc { }
 .blk-add { position: relative; margin-top: 14px; }
+/* Portaled to <body> and positioned by JS (block_builder.js): a fixed overlay
+   so no ancestor overflow/max-height/transform can clip it. */
 .blk-add-menu {
-  position: absolute; z-index: 20; margin-top: 6px; inset-inline-start: 0;
+  position: fixed; z-index: 9999;
   background: #fff; border: 1px solid var(--border); border-radius: var(--radius-sm);
-  box-shadow: 0 12px 30px rgba(15,23,42,.14); padding: 6px; min-width: 240px;
+  box-shadow: 0 16px 40px rgba(15,23,42,.20); padding: 6px; min-width: 240px; max-width: 92vw;
   display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+  overflow-y: auto; overscroll-behavior: contain;
 }
+.blk-add-menu[hidden] { display: none !important; }
 .blk-add-item {
   display: flex; align-items: center; gap: 8px; text-align: start;
   border: none; background: transparent; cursor: pointer; padding: 8px 10px;

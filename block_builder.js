@@ -26,7 +26,6 @@ window.LessonBlocks = (function () {
   var state = [];              // ordered array of block objects
   var editors = new Map();     // blockId -> { kind: "rte"|"callout"|"kc", ed }
   var excludeTypes = [];       // block types hidden from the Add menu (e.g. "knowledge" in Parts mode)
-  var docCloseBound = false;   // add the document-level menu-close listener only once
   var activeId = null;         // the block the user is currently on — new blocks insert AFTER it
 
   function nowISO() { return new Date().toISOString(); }
@@ -394,15 +393,95 @@ window.LessonBlocks = (function () {
           '<span class="blk-add-ico">' + t.icon + '</span>' + esc(t.label) + '</button>';
       }).join("") + '</div>';
   }
+  /* The Add Block menu is rendered as a FIXED overlay portaled to <body> so no
+     ancestor's overflow:hidden / max-height / transform can clip it. It is
+     positioned relative to the "+ Add Block" button, opens upward when there is
+     not enough room below, stays inside the viewport, and is RTL-aware. */
+  var _dismissBound = false, _onDocDown = null, _onKey = null, _onReflow = null;
+  function addBtnEl() { return mount ? mount.querySelector('[data-role="add-btn"]') : null; }
+  function menuHome() { return mount ? mount.querySelector(".blk-add") : null; }
+  function removeStrayMenus() {
+    // Any previously-portaled menu (e.g. left over when the Part was switched).
+    Array.prototype.forEach.call(document.body.querySelectorAll(":scope > .blk-add-menu"), function (el) {
+      if (el !== addMenuEl) el.remove();
+    });
+  }
+  function positionMenu() {
+    if (!addMenuEl || addMenuEl.hidden) return;
+    var btn = addBtnEl(); if (!btn) return;
+    var r = btn.getBoundingClientRect();
+    var vw = document.documentElement.clientWidth || window.innerWidth;
+    var vh = document.documentElement.clientHeight || window.innerHeight;
+    var m = 8;
+    addMenuEl.style.maxHeight = Math.max(160, vh - 2 * m) + "px";
+    var mw = addMenuEl.offsetWidth, mh = addMenuEl.offsetHeight;
+    // Vertical: below the button if it fits, otherwise above (flip up).
+    var spaceBelow = vh - r.bottom, spaceAbove = r.top, top;
+    if (spaceBelow >= mh + m || spaceBelow >= spaceAbove) top = r.bottom + 6; // below
+    else top = r.top - 6 - mh;                                                // above
+    top = Math.max(m, Math.min(top, vh - mh - m));                           // clamp to viewport
+    // Horizontal: align with the button (right edges in RTL, left in LTR); clamp.
+    var rtl = (getComputedStyle(document.documentElement).direction === "rtl") || (document.dir === "rtl");
+    var left = rtl ? (r.right - mw) : r.left;
+    left = Math.max(m, Math.min(left, vw - mw - m));
+    addMenuEl.style.position = "fixed";
+    addMenuEl.style.top = Math.round(top) + "px";
+    addMenuEl.style.left = Math.round(left) + "px";
+    addMenuEl.style.margin = "0";
+  }
+  function bindDismiss() {
+    if (_dismissBound) return;
+    _dismissBound = true;
+    _onDocDown = function (e) {
+      var btn = addBtnEl();
+      if (addMenuEl && !addMenuEl.contains(e.target) && (!btn || !btn.contains(e.target))) closeMenu();
+    };
+    _onKey = function (e) { if (e.key === "Escape" || e.key === "Esc") closeMenu(); };
+    _onReflow = function () { positionMenu(); };
+    document.addEventListener("mousedown", _onDocDown, true);
+    document.addEventListener("keydown", _onKey, true);
+    window.addEventListener("resize", _onReflow, true);
+    window.addEventListener("scroll", _onReflow, true);
+  }
+  function unbindDismiss() {
+    if (!_dismissBound) return;
+    _dismissBound = false;
+    document.removeEventListener("mousedown", _onDocDown, true);
+    document.removeEventListener("keydown", _onKey, true);
+    window.removeEventListener("resize", _onReflow, true);
+    window.removeEventListener("scroll", _onReflow, true);
+  }
+  function openMenu() {
+    if (!addMenuEl) return;
+    removeStrayMenus();
+    if (addMenuEl.parentNode !== document.body) document.body.appendChild(addMenuEl); // portal out
+    addMenuEl.style.position = "fixed";
+    addMenuEl.style.left = "-9999px"; addMenuEl.style.top = "0"; // measure off-screen (no flash)
+    addMenuEl.hidden = false;
+    positionMenu();
+    bindDismiss();
+  }
+  function closeMenu() {
+    if (!addMenuEl) return;
+    addMenuEl.hidden = true;
+    addMenuEl.style.top = addMenuEl.style.left = addMenuEl.style.maxHeight = "";
+    var home = menuHome();
+    if (home && addMenuEl.parentNode !== home) home.appendChild(addMenuEl); // return into the builder
+    unbindDismiss();
+  }
   function toggleAddMenu(force) {
     if (!addMenuEl) return;
     var show = (force === undefined) ? addMenuEl.hidden : force;
-    addMenuEl.hidden = !show;
+    if (show) openMenu(); else closeMenu();
   }
 
   /* ---------- public ---------- */
   function init(mountEl, opts) {
     if (!mountEl) return;
+    // Tear down any menu still portaled from a previous mount (e.g. Part switch).
+    unbindDismiss();
+    Array.prototype.slice.call(document.querySelectorAll("body > .blk-add-menu")).forEach(function (el) { el.remove(); });
+    addMenuEl = null;
     opts = opts || {};
     excludeTypes = Array.isArray(opts.excludeTypes) ? opts.excludeTypes : [];
     mount = mountEl;
@@ -422,21 +501,13 @@ window.LessonBlocks = (function () {
       var card = e.target.closest(".blk-card");
       if (card) activeId = card.getAttribute("data-block-id");
     });
-    mount.querySelector('[data-role="add-btn"]').addEventListener("click", function () { toggleAddMenu(); });
+    mount.querySelector('[data-role="add-btn"]').addEventListener("click", function (e) { e.stopPropagation(); toggleAddMenu(); });
     addMenuEl.addEventListener("click", function (e) {
       var item = e.target.closest("[data-add-type]");
       if (!item) return;
       toggleAddMenu(false);
       addBlock(item.getAttribute("data-add-type"));
     });
-    // Close the menu when clicking elsewhere (bound once — init may run per Part).
-    if (!docCloseBound) {
-      docCloseBound = true;
-      document.addEventListener("click", function (e) {
-        if (addMenuEl && !addMenuEl.hidden && mount && mount.querySelector(".blk-add") &&
-            !mount.querySelector(".blk-add").contains(e.target)) toggleAddMenu(false);
-      });
-    }
     render();
   }
   function load(blocks) {

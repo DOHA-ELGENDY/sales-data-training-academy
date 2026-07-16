@@ -31,6 +31,15 @@
     try { return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }); } catch (e) { return NA; }
   }
   function dayKey(d) { try { return new Date(d).toISOString().slice(0, 10); } catch (e) { return ""; } }
+  // Task/Question values may be rich-text/Google-Docs HTML paste — show plain text.
+  function stripHtml(v) {
+    var t = String(v == null ? "" : v);
+    if (t.indexOf("<") < 0 && t.indexOf("&") < 0) return t;
+    return t.replace(/<[^>]*>/g, " ")
+      .replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">").replace(/&quot;/gi, '"').replace(/&#3?9;/gi, "'")
+      .replace(/\s+/g, " ").trim();
+  }
   function fmtSize(bytes) {
     var b = Number(bytes); if (!b) return NA;
     if (b < 1024) return b + " B";
@@ -107,7 +116,7 @@
       _table: "knowledge_check_responses", statusCol: "review_status", id: r.id, source: "Knowledge Check",
       employee_id: r.employee_id || "", employee_name: r.employee_name || NA, team: r.team || "—",
       academy_key: r.academy_key || "", module_id: r.module_id || "", lesson_id: r.lesson_id || "", section_id: r.section_id || "",
-      taskTitle: r.question || "Knowledge Check", kc_id: r.knowledge_check_id || "",
+      taskTitle: stripHtml(r.question) || "Knowledge Check", kc_id: r.knowledge_check_id || "",
       text: r.text_answer || "", link: r.document_url || "", file_url: r.file_url || "", file_name: r.file_name || "", file_type: r.file_type || "", file_size: r.file_size,
       submitted_at: r.submitted_at, review_status: r.review_status || "Pending Review",
       score: r.score || "", feedback: r.feedback || "", reviewed_by: r.reviewed_by || "", reviewed_at: r.reviewed_at || "",
@@ -121,7 +130,7 @@
       _table: "submissions", statusCol: "status", id: r.id, source: "Assignment",
       employee_id: r.employee_id || "", employee_name: r.employee_name || NA, team: r.team || "—",
       academy_key: r.academy_key || "", module_id: r.module_id || "", lesson_id: r.lesson_id || "", section_id: "",
-      taskTitle: r.assignment_title || "Lesson Assignment", instructions: instructions,
+      taskTitle: stripHtml(r.assignment_title) || "Lesson Assignment", instructions: stripHtml(instructions),
       text: r.text_answer || "", link: r.submission_link || "", file_url: r.file_url || "", file_name: r.file_name || "", file_type: r.file_type || "", file_size: r.file_size,
       submitted_at: r.created_at, review_status: r.status || "Pending Review",
       score: r.score || "", feedback: r.feedback || "", reviewed_by: r.reviewed_by || "", reviewed_at: r.reviewed_at || "",

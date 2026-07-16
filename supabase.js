@@ -122,6 +122,41 @@ window.SB = (function () {
     return changed ? out : null;
   }
 
+  /* Generic "missing column" recovery. Older deployments may lack columns the
+     app now sends — e.g. the knowledge_check_responses grading columns
+     (is_correct / correct_answer / score / feedback / reviewed_at) were added
+     after the original schema, so a DB that never ran the migration rejects
+     every insert with PGRST204. Rather than let that block the write (which, for
+     a deliverable Knowledge Check, would trap all lesson content behind it), we
+     detect the offending column, drop it, and retry — persisting whatever the
+     table DOES have. Returns the name of the unknown column, or null. */
+  function missingColumnName(e) {
+    var m = String((e && e.message) || "");
+    var looksMissing = /PGRST204/.test(m) || /schema cache/i.test(m) ||
+      (/column/i.test(m) && /(does not exist|find the)/i.test(m));
+    if (!looksMissing) return null;
+    var mm = m.match(/'([A-Za-z0-9_]+)' column/);
+    return mm ? mm[1] : null;
+  }
+  function stripKey(row, key) { var c = {}; for (var k in row) if (k !== key) c[k] = row[k]; return c; }
+  /* Send a row (POST or PATCH), dropping any column the target table doesn't
+     have — one per retry — until it succeeds or a non-column error occurs. */
+  async function sendDroppingUnknownCols(method, path, row, extraHeaders) {
+    var body = row;
+    for (var i = 0; i < 12; i++) {
+      if (method === "PATCH" && !Object.keys(body).length) return true; // nothing left to patch
+      try {
+        await req(path, { method: method, headers: headers(extraHeaders), body: JSON.stringify(body) });
+        return true;
+      } catch (e) {
+        var col = missingColumnName(e);
+        if (col && (col in body)) { body = stripKey(body, col); continue; }
+        throw e;
+      }
+    }
+    throw new Error("sendDroppingUnknownCols: too many missing columns on " + path);
+  }
+
   var UPSERT = { "Prefer": "resolution=merge-duplicates,return=minimal" };
   var MINIMAL = { "Prefer": "return=minimal" };
 
@@ -167,8 +202,9 @@ window.SB = (function () {
       try {
         await req("/lessons?on_conflict=id", { method: "POST", headers: headers(UPSERT), body: JSON.stringify(rows) });
       } catch (e) {
+        var stripped = rows.map(function (r) { return stripLessonUnknownCols(r, e) || r; });
         if (!stripLessonUnknownCols(rows[0], e)) throw e;
-        await req("/lessons?on_conflict=id", { method: "POST", headers: headers(UPSERT), body: JSON.stringify(rows.map(function (r) { return stripLessonUnknownCols(r, e) || r; })) });
+        await req("/lessons?on_conflict=id", { method: "POST", headers: headers(UPSERT), body: JSON.stringify(stripped) });
       }
     }
     return true;
@@ -266,10 +302,18 @@ window.SB = (function () {
   function uploadFile(file) { return uploadToBucket(file, IMAGE_BUCKET, "files", "bin"); }
   function uploadKcFile(file) { return uploadToBucket(file, KC_BUCKET, "responses", "bin"); }
 
-  /* ---------- Inline Knowledge Check responses ---------- */
+  /* ---------- Knowledge Check responses ---------- */
+  function slug(v) { return String(v == null ? "" : v).replace(/[^a-zA-Z0-9_]/g, "").slice(0, 60); }
+  /* One row per employee + knowledge check (deterministic id) so re-answering
+     overwrites rather than piling up duplicate rows. */
+  function kcResponseId(x) {
+    if (s(x.id)) return s(x.id);
+    if (s(x.employeeId) && s(x.knowledgeCheckId)) return "kcr_" + slug(x.employeeId) + "__" + slug(x.knowledgeCheckId);
+    return subId();
+  }
   function kcResponseToRow(x) {
     return {
-      id: s(x.id) || subId(),
+      id: kcResponseId(x),
       employee_id: s(x.employeeId),
       employee_name: s(x.employeeName),
       team: s(x.team),
@@ -283,19 +327,89 @@ window.SB = (function () {
       document_url: s(x.documentUrl),
       file_url: s(x.fileUrl),
       file_name: s(x.fileName),
+      is_correct: (x.isCorrect === true || x.isCorrect === false) ? x.isCorrect : null,
+      correct_answer: s(x.correctAnswer),
       review_status: s(x.reviewStatus) || "Pending Review",
       submitted_at: x.submittedAt || new Date().toISOString()
     };
   }
   async function insertKcResponse(resp) {
-    await req("/knowledge_check_responses", {
-      method: "POST", headers: headers(MINIMAL), body: JSON.stringify(kcResponseToRow(resp))
-    });
+    // Tolerate a stale schema (missing grading columns) so a deliverable KC save
+    // can't fail and trap the lesson content behind it.
+    await sendDroppingUnknownCols("POST", "/knowledge_check_responses?on_conflict=id", kcResponseToRow(resp), UPSERT);
     return true;
   }
   async function fetchKcResponses() {
     var res = await req("/knowledge_check_responses?select=*&order=submitted_at.desc", { headers: headers() });
     return await res.json();
+  }
+  /* Admin review update for a written/document/file KC response. */
+  async function updateKcResponse(id, patch) {
+    var row = {};
+    if (patch.reviewStatus !== undefined) row.review_status = s(patch.reviewStatus);
+    if (patch.score !== undefined) row.score = s(patch.score);
+    if (patch.feedback !== undefined) row.feedback = s(patch.feedback);
+    row.reviewed_at = new Date().toISOString();
+    // Same stale-schema tolerance as inserts (grading columns may be absent).
+    await sendDroppingUnknownCols("PATCH", "/knowledge_check_responses?id=eq." + enc(id), row, MINIMAL);
+    return true;
+  }
+
+  /* ---------- Employee analytics (profiles / progress / activity) ---------- */
+  function profileToRow(x) {
+    var now = new Date().toISOString();
+    var row = { id: s(x.employeeId), last_active: now, updated_at: now };
+    if (x.employeeName !== undefined) row.employee_name = s(x.employeeName);
+    if (x.team !== undefined) row.team = s(x.team);
+    if (x.academyKey !== undefined && x.academyKey) row.academy_key = s(x.academyKey);
+    if (x.role !== undefined) row.role = s(x.role);
+    if (x.currentModuleId !== undefined) row.current_module_id = s(x.currentModuleId);
+    if (x.currentModuleTitle !== undefined) row.current_module_title = s(x.currentModuleTitle);
+    if (x.currentLessonId !== undefined) row.current_lesson_id = s(x.currentLessonId);
+    if (x.currentLessonTitle !== undefined) row.current_lesson_title = s(x.currentLessonTitle);
+    return row;
+  }
+  async function upsertProfile(x) {
+    if (!s(x.employeeId)) return false;
+    await req("/employee_profiles?on_conflict=id", { method: "POST", headers: headers(UPSERT), body: JSON.stringify(profileToRow(x)) });
+    return true;
+  }
+  async function fetchProfiles() {
+    var res = await req("/employee_profiles?select=*&order=last_active.desc", { headers: headers() });
+    return await res.json();
+  }
+  function progressToRow(x) {
+    var now = new Date().toISOString();
+    var row = {
+      id: "lp_" + slug(x.employeeId) + "__" + slug(x.lessonId),
+      employee_id: s(x.employeeId), employee_name: s(x.employeeName), team: s(x.team),
+      academy_key: s(x.academyKey), module_id: s(x.moduleId), lesson_id: s(x.lessonId),
+      status: s(x.status) || "in-progress", last_activity: now, updated_at: now
+    };
+    if (x.completed) row.completed_at = now;   // started_at defaults to now() on first insert
+    return row;
+  }
+  async function upsertProgress(x) {
+    if (!s(x.employeeId) || !s(x.lessonId)) return false;
+    await req("/learning_progress?on_conflict=id", { method: "POST", headers: headers(UPSERT), body: JSON.stringify(progressToRow(x)) });
+    return true;
+  }
+  async function fetchProgress() {
+    var res = await req("/learning_progress?select=*", { headers: headers() });
+    return await res.json();
+  }
+  function activityToRow(x) {
+    return {
+      id: "ev_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36),
+      employee_id: s(x.employeeId), employee_name: s(x.employeeName), team: s(x.team),
+      academy_key: s(x.academyKey), event_type: s(x.eventType),
+      module_id: s(x.moduleId), lesson_id: s(x.lessonId), detail: s(x.detail),
+      created_at: new Date().toISOString()
+    };
+  }
+  async function insertActivity(x) {
+    await req("/lesson_activity_log", { method: "POST", headers: headers(MINIMAL), body: JSON.stringify(activityToRow(x)) });
+    return true;
   }
 
   /* ---------- Connection test ---------- */
@@ -316,7 +430,10 @@ window.SB = (function () {
     insertSubmission: insertSubmission, upsertSubmission: upsertSubmission,
     fetchSubmissions: fetchSubmissions, updateSubmission: updateSubmission,
     uploadImage: uploadImage, uploadFile: uploadFile, uploadKcFile: uploadKcFile,
-    insertKcResponse: insertKcResponse, fetchKcResponses: fetchKcResponses,
+    insertKcResponse: insertKcResponse, fetchKcResponses: fetchKcResponses, updateKcResponse: updateKcResponse,
+    upsertProfile: upsertProfile, fetchProfiles: fetchProfiles,
+    upsertProgress: upsertProgress, fetchProgress: fetchProgress,
+    insertActivity: insertActivity,
     moduleFromRow: moduleFromRow, lessonFromRow: lessonFromRow
   };
 })();

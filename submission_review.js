@@ -16,7 +16,7 @@
 (function () {
   "use strict";
 
-  var S = { kc: [], subs: [], modules: [], lessons: [], rows: [], byId: {} };
+  var S = { kc: [], subs: [], modules: [], lessons: [], rows: [], byId: {}, selectedKey: null };
   var NA = "Not available";
 
   /* ---------- helpers ---------- */
@@ -214,7 +214,8 @@
     });
   }
 
-  /* ---------- table ---------- */
+  /* ---------- presentation helpers ---------- */
+  function initials(name) { var n = String(name == null ? "" : name).trim(); return (n.charAt(0) || "?").toUpperCase(); }
   function statusChip(st) {
     var slug = { "Pending Review": "pending", "Reviewed": "reviewed", "Needs Revision": "revision" }[st] || "pending";
     return '<span class="sr-chip sr-chip-' + slug + '">' + esc(st) + '</span>';
@@ -223,106 +224,142 @@
     var slug = src === "Assignment" ? "src-asg" : "src-kc";
     return '<span class="sr-chip sr-chip-' + slug + '">' + esc(src) + '</span>';
   }
-  function renderTable() {
+  function typeChip(t) { return '<span class="sr-chip sr-chip-type">' + esc(t) + '</span>'; }
+  function kv(k, v) { return '<span class="k">' + esc(k) + '</span><span class="v">' + esc(v) + '</span>'; }
+  function pathRow(tag, val) { return '<div class="srd-path-row"><span class="srd-path-tag">' + esc(tag) + '</span><span class="srd-path-val" title="' + esc(val) + '">' + esc(val) + '</span></div>'; }
+  function emptyState(ico, title, sub) {
+    return '<div class="sr-empty"><span class="sr-empty-ico" aria-hidden="true">' + ico + '</span>' +
+      '<div class="sr-empty-title">' + esc(title) + '</div><div class="sr-empty-sub">' + esc(sub || "") + '</div></div>';
+  }
+  function reviewerName() { var i = (typeof Identity !== "undefined") ? Identity.get() : null; return (i && i.employeeName) || "Admin"; }
+  function setCount(n) { var el = $("srCount"); if (el) el.textContent = n + " / " + S.rows.length; }
+
+  /* ---------- LEFT: submission list (cards) ---------- */
+  function renderList() {
     var rows = applyFilters();
-    var tb = $("srList");
-    if (!rows.length) { tb.innerHTML = '<tr><td colspan="12" class="sr-empty"><span class="sr-empty-ico">🔍</span>No submissions match these filters.</td></tr>'; setCount(0); return; }
-    tb.innerHTML = rows.map(function (r) {
+    var host = $("srList");
+    if (!rows.length) { host.innerHTML = emptyState("🔍", "No submissions found", "Adjust the filters above or clear the search."); setCount(0); return; }
+    host.innerHTML = rows.map(function (r) {
       var key = r._table + ":" + r.id;
-      return '<tr>' +
-        '<td class="sr-name">' + esc(r.employee_name) + '</td>' +
-        '<td class="sr-dim">' + esc(r.team) + '</td>' +
-        '<td>' + sourceChip(r.source) + '</td>' +
-        '<td class="sr-dim">' + esc(r.academyName) + '</td>' +
-        '<td class="sr-dim">' + esc(r.moduleName) + '</td>' +
-        '<td class="sr-dim">' + esc(r.lessonName) + '</td>' +
-        '<td class="sr-dim">' + esc(r.sectionName) + '</td>' +
-        '<td>' + esc(String(r.taskTitle).slice(0, 80)) + '</td>' +
-        '<td><span class="sr-chip sr-chip-type">' + esc(r.type) + '</span></td>' +
-        '<td class="sr-dim" style="white-space:nowrap">' + esc(fmtDateTime(r.submitted_at)) + '</td>' +
-        '<td>' + statusChip(statusOf(r)) + '</td>' +
-        '<td><button type="button" class="sr-btn sr-btn-sm" data-open="' + esc(key) + '">View Submission</button></td>' +
-      '</tr>';
+      var hasCtx = (r.moduleName && r.moduleName !== NA) || (r.lessonName && r.lessonName !== NA);
+      return '<article class="sr-item' + (key === S.selectedKey ? ' is-active' : '') + '" data-open="' + esc(key) + '" tabindex="0" role="button" aria-label="View submission">' +
+        '<div class="sr-item-top"><span class="sr-avatar" aria-hidden="true">' + esc(initials(r.employee_name)) + '</span>' +
+          '<span class="sr-item-id"><span class="sr-item-name">' + esc(r.employee_name) + '</span>' +
+          '<span class="sr-item-sub">' + esc(r.employee_id || "—") + ' · ' + esc(r.team) + '</span></span></div>' +
+        '<div class="sr-item-badges">' + sourceChip(r.source) + typeChip(r.type) + statusChip(statusOf(r)) + '</div>' +
+        (hasCtx ? '<div class="sr-item-ctx"><span><b>' + esc(r.moduleName) + '</b></span>' +
+          '<span>' + esc(r.lessonName) + (r.sectionName && r.sectionName !== "—" ? ' · ' + esc(r.sectionName) : '') + '</span></div>' : '') +
+        '<div class="sr-item-foot"><span class="sr-item-when">' + esc(fmtDateTime(r.submitted_at)) + '</span>' +
+          '<button type="button" class="sr-btn sr-btn-sm" data-open="' + esc(key) + '">View →</button></div>' +
+      '</article>';
     }).join("");
     setCount(rows.length);
   }
-  function setCount(n) { var el = $("srCount"); if (el) el.textContent = n + " / " + S.rows.length + " submissions"; }
 
-  /* ---------- detail drawer ---------- */
-  function fileButtons(r) {
-    if (!r.file_url) return "";
-    return '<div class="sr-actions-row">' +
-      '<a class="sr-btn sr-btn-sm" href="' + esc(r.file_url) + '" target="_blank" rel="noopener">Open File ↗</a>' +
-      '<a class="sr-btn sr-btn-ghost sr-btn-sm" href="' + esc(r.file_url) + '" download="' + esc(r.file_name || "") + '" target="_blank" rel="noopener">Download File ⬇</a>' +
-    '</div>';
+  /* ---------- RIGHT: details panel (persistent split view — no modal) ---------- */
+  function docLabel(url) {
+    var u = String(url || "");
+    if (/docs\.google\.com/i.test(u)) return "Google Docs document";
+    if (/drive\.google\.com/i.test(u)) return "Google Drive file";
+    if (/sharepoint|onedrive|1drv\.ms/i.test(u)) return "OneDrive / SharePoint document";
+    if (/dropbox/i.test(u)) return "Dropbox file";
+    try { return (new URL(u)).hostname.replace(/^www\./, "") + " document"; } catch (e) { return "Shared document"; }
   }
+  function docIcon(url) { return /docs\.google\.com/i.test(String(url)) ? "📝" : (/drive\.google/i.test(String(url)) ? "📁" : "📄"); }
+
+  // Buttons only — a raw URL is NEVER displayed.
   function responseBlock(r) {
     if (r.type === "File Upload" && r.file_url) {
-      return '<div class="sr-file"><div class="sr-kv">' +
-        '<span class="k">File Name</span><span class="v">' + esc(r.file_name || NA) + '</span>' +
-        '<span class="k">File Type</span><span class="v">' + esc(r.file_type || NA) + '</span>' +
-        '<span class="k">File Size</span><span class="v">' + esc(fmtSize(r.file_size)) + '</span>' +
-        '<span class="k">Uploaded At</span><span class="v">' + esc(fmtDateTime(r.submitted_at)) + '</span>' +
-        '</div>' + fileButtons(r) + '</div>';
+      return '<div class="srd-file"><span class="srd-file-ico" aria-hidden="true">📄</span>' +
+        '<div class="srd-file-main"><div class="srd-file-name" title="' + esc(r.file_name || "") + '">' + esc(r.file_name || "Uploaded file") + '</div>' +
+        '<div class="srd-file-sub">' + esc(r.file_type || "File") + ' · ' + esc(fmtSize(r.file_size)) + ' · ' + esc(fmtDateTime(r.submitted_at)) + '</div></div></div>' +
+        '<div class="srd-sub-actions">' +
+          '<a class="sr-btn sr-btn-sm" href="' + esc(r.file_url) + '" target="_blank" rel="noopener">📂 Open File</a>' +
+          '<a class="sr-btn sr-btn-ghost sr-btn-sm" href="' + esc(r.file_url) + '" download="' + esc(r.file_name || "") + '" target="_blank" rel="noopener">📥 Download File</a>' +
+        '</div>';
     }
     if (r.type === "Document Link" && r.link) {
-      return '<div><a class="sr-link" href="' + esc(r.link) + '" target="_blank" rel="noopener">' + esc(r.link) + '</a>' +
-        '<div class="sr-actions-row"><a class="sr-btn sr-btn-sm" href="' + esc(r.link) + '" target="_blank" rel="noopener">Open Document ↗</a></div></div>';
+      return '<div class="srd-doc"><span class="srd-doc-ico" aria-hidden="true">' + docIcon(r.link) + '</span>' +
+        '<div class="srd-doc-main"><div class="srd-doc-title">' + esc(docLabel(r.link)) + '</div>' +
+        '<div class="srd-doc-sub">Shared link · opens in a new tab</div></div></div>' +
+        '<div class="srd-sub-actions">' +
+          '<a class="sr-btn sr-btn-sm" href="' + esc(r.link) + '" target="_blank" rel="noopener">📄 Open Document</a>' +
+          '<button type="button" class="sr-btn sr-btn-ghost sr-btn-sm" data-copy="' + esc(r.link) + '">🔗 Copy Link</button>' +
+        '</div>';
     }
-    if (r.text) return '<div class="sr-answer">' + esc(r.text) + '</div>';
-    return '<p class="sr-dim">No response content stored for this submission.</p>';
+    if (r.text) return '<div class="srd-text">' + esc(r.text) + '</div>';
+    return '<p style="color:var(--sr-dim)">No response content stored for this submission.</p>';
   }
-  function kv(k, v) { return '<span class="k">' + esc(k) + '</span><span class="v">' + esc(v) + '</span>'; }
 
-  function openDrawer(key) {
+  function renderDetailsEmpty() {
+    $("srDetails").innerHTML = '<div class="srd-scroll">' +
+      emptyState("🗂️", "Select a submission", "Choose a submission from the list to view its details and review it here.") + '</div>';
+  }
+
+  function selectSubmission(key) {
     var r = S.byId[key]; if (!r) return;
-    var st = statusOf(r);
-    var taskSec = r.source === "Knowledge Check"
-      ? '<div class="sr-sec"><h4 class="sr-sec-h">Knowledge Check Prompt</h4><div class="sr-answer">' + esc(r.taskTitle) + '</div></div>'
-      : '<div class="sr-sec"><h4 class="sr-sec-h">Assignment</h4><div class="sr-kv">' + kv("Title", r.taskTitle) + '</div>' +
-        (r.instructions ? '<div class="sr-answer" style="margin-top:8px">' + esc(r.instructions) + '</div>' : '') + '</div>';
+    S.selectedKey = key;
+    Array.prototype.forEach.call(document.querySelectorAll(".sr-item"), function (el) {
+      el.classList.toggle("is-active", el.getAttribute("data-open") === key);
+    });
+    renderDetails(r, key);
+  }
 
-    $("srDrawerBody").innerHTML =
-      '<div class="sr-sec"><h4 class="sr-sec-h">Employee</h4><div class="sr-kv">' +
-        kv("Name", r.employee_name) + kv("Team", r.team) + '</div></div>' +
-      '<div class="sr-sec"><h4 class="sr-sec-h">Training Context</h4><div class="sr-kv">' +
-        kv("Academy", r.academyName) + kv("Module", r.moduleName) + kv("Lesson", r.lessonName) +
-        kv("Section", r.sectionName) + kv("Source", r.source) + kv("Submitted At", fmtDateTime(r.submitted_at)) + '</div></div>' +
-      taskSec +
-      '<div class="sr-sec"><h4 class="sr-sec-h">Employee Response · ' + esc(r.type) + '</h4>' + responseBlock(r) + '</div>' +
-      '<div class="sr-review" data-key="' + esc(key) + '">' +
-        '<h4 class="sr-sec-h">Review</h4>' +
-        '<label for="srRvStatus">Review Status</label>' +
-        '<select id="srRvStatus">' +
-          ['Pending Review', 'Reviewed', 'Needs Revision'].map(function (o) { return '<option value="' + o + '"' + (o === st ? ' selected' : '') + '>' + o + '</option>'; }).join("") +
-        '</select>' +
-        '<label for="srRvScore">Score</label>' +
-        '<input type="text" id="srRvScore" value="' + esc(r.score) + '" placeholder="e.g. 8/10 or 80%" />' +
-        '<label for="srRvFeedback">Feedback</label>' +
-        '<textarea id="srRvFeedback" placeholder="Feedback for the employee…">' + esc(r.feedback) + '</textarea>' +
-        '<label for="srRvBy">Reviewed By</label>' +
-        '<input type="text" id="srRvBy" value="' + esc(r.reviewed_by || reviewerName()) + '" />' +
-        (r.reviewed_at ? '<p class="sr-dim" style="margin-top:8px">Last reviewed: ' + esc(fmtDateTime(r.reviewed_at)) + '</p>' : '') +
-        '<div class="sr-review-actions">' +
-          '<button type="button" class="sr-btn" data-review="save">Save Review</button>' +
-          '<button type="button" class="sr-btn sr-btn-ghost" data-review="reviewed">Mark Reviewed</button>' +
-          '<button type="button" class="sr-btn sr-btn-ghost" data-review="revision">Request Revision</button>' +
-        '</div>' +
-        '<div class="sr-review-msg" data-review-msg></div>' +
+  function renderDetails(r, key) {
+    var st = statusOf(r);
+    var sectionLabel = (r.sectionName && r.sectionName !== "—") ? r.sectionName : (r.source === "Assignment" ? "Lesson-level (Assignment)" : "—");
+    var scroll =
+      // Card 1 — Employee Information
+      '<div class="srd-card"><h4 class="srd-card-h">Employee Information</h4>' +
+        '<div class="srd-emp"><span class="sr-avatar" aria-hidden="true">' + esc(initials(r.employee_name)) + '</span>' +
+          '<div><div class="srd-emp-name">' + esc(r.employee_name) + '</div>' +
+          '<div class="srd-emp-meta">' + esc(r.employee_id || "—") + ' · ' + esc(r.team) + '</div></div></div>' +
+        '<div class="srd-kv" style="margin-top:14px">' + kv("Employee ID", r.employee_id || "—") + kv("Team", r.team) + kv("Academy", r.academyName) + '</div>' +
+      '</div>' +
+      // Card 2 — Training Context (grouped Module → Lesson → Section)
+      '<div class="srd-card"><h4 class="srd-card-h">Training Context</h4>' +
+        '<div class="srd-path">' + pathRow("Module", r.moduleName) + pathRow("Lesson", r.lessonName) + pathRow("Section", sectionLabel) + '</div>' +
+        '<div class="srd-kv">' + kv("Source", r.source) + kv("Submission Type", r.type) + kv("Submitted", fmtDateTime(r.submitted_at)) + '</div>' +
+      '</div>' +
+      // Card 3 — Question / Instructions (large readable typography)
+      '<div class="srd-card"><h4 class="srd-card-h">' + (r.source === "Knowledge Check" ? "Question" : "Assignment") + '</h4>' +
+        (r.source === "Knowledge Check"
+          ? '<div class="srd-prose">' + esc(r.taskTitle) + '</div>'
+          : '<div class="srd-prose"><strong>' + esc(r.taskTitle) + '</strong></div>' +
+            (r.instructions ? '<div class="srd-prose" style="margin-top:10px">' + esc(r.instructions) + '</div>' : '')) +
+      '</div>' +
+      // Card 4 — Employee Submission (buttons only)
+      '<div class="srd-card"><h4 class="srd-card-h">Employee Submission · ' + esc(r.type) + '</h4>' + responseBlock(r) + '</div>' +
+      // Card 5 — Review
+      '<div class="srd-card srd-review"><h4 class="srd-card-h">Review</h4>' +
+        '<label for="srRvStatus">Status</label>' +
+        '<select id="srRvStatus">' + ['Pending Review', 'Reviewed', 'Needs Revision'].map(function (o) { return '<option value="' + o + '"' + (o === st ? ' selected' : '') + '>' + o + '</option>'; }).join("") + '</select>' +
+        '<label for="srRvScore">Score</label><input type="text" id="srRvScore" value="' + esc(r.score) + '" placeholder="e.g. 8/10 or 80%" />' +
+        '<label for="srRvFeedback">Feedback</label><textarea id="srRvFeedback" placeholder="Feedback for the employee…">' + esc(r.feedback) + '</textarea>' +
+        '<label for="srRvBy">Reviewed By</label><input type="text" id="srRvBy" value="' + esc(r.reviewed_by || reviewerName()) + '" />' +
+        (r.reviewed_at ? '<div class="srd-kv" style="margin-top:12px">' + kv("Reviewed At", fmtDateTime(r.reviewed_at)) + '</div>' : '') +
       '</div>';
 
-    var drawer = $("srDrawer");
-    drawer.classList.add("open"); drawer.setAttribute("aria-hidden", "false");
-    $("srScrim").hidden = false; document.body.style.overflow = "hidden";
+    $("srDetails").innerHTML =
+      '<div class="srd-scroll">' + scroll + '</div>' +
+      '<div class="srd-actions" data-key="' + esc(key) + '">' +
+        '<button type="button" class="sr-btn sr-btn-ghost" data-review="revision">Request Revision</button>' +
+        '<button type="button" class="sr-btn sr-btn-ghost" data-review="reviewed">Mark Reviewed</button>' +
+        '<button type="button" class="sr-btn" data-review="save">Save Review</button>' +
+        '<div class="srd-actions-msg" data-review-msg></div>' +
+      '</div>';
   }
-  function closeDrawer() {
-    var drawer = $("srDrawer");
-    drawer.classList.remove("open"); drawer.setAttribute("aria-hidden", "true");
-    $("srScrim").hidden = true; document.body.style.overflow = "";
+
+  function copyLink(btn) {
+    var url = btn.getAttribute("data-copy") || "";
+    var flash = function () { var t = btn.textContent; btn.textContent = "✓ Copied"; setTimeout(function () { btn.textContent = t; }, 1400); };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(url).then(flash, function () { fallbackCopy(url); flash(); }); return; }
+    } catch (e) {}
+    fallbackCopy(url); flash();
   }
-  function reviewerName() {
-    var i = (typeof Identity !== "undefined") ? Identity.get() : null;
-    return (i && i.employeeName) || "Admin";
+  function fallbackCopy(url) {
+    try { var ta = document.createElement("textarea"); ta.value = url; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); } catch (e) {}
   }
 
   /* ---------- review save (column-tolerant PATCH) ---------- */
@@ -344,7 +381,7 @@
     return attempt(body);
   }
   function doReview(action) {
-    var panel = document.querySelector(".sr-review[data-key]");
+    var panel = document.querySelector(".srd-actions[data-key]");
     if (!panel) return;
     var key = panel.getAttribute("data-key");
     var r = S.byId[key]; if (!r) return;
@@ -362,37 +399,52 @@
     if (msg) { msg.style.color = "var(--sr-dim)"; msg.textContent = "Saving…"; }
     patchTolerant(r._table, r.id, body).then(function () {
       r.review_status = status; r.score = score; r.feedback = feedback; r.reviewed_by = reviewedBy; r.reviewed_at = reviewedAt;
-      // Sync the dropdown/state if the status changed via a shortcut button.
-      var sel = $("srRvStatus"); if (sel) sel.value = status;
-      renderCards(); renderTable();
-      if (msg) { msg.style.color = "var(--sr-ok)"; msg.textContent = "Saved ✓  (" + status + ")"; }
+      // Refresh the summary + list + this submission's details in place (split view stays open).
+      renderCards(); renderList(); selectSubmission(key);
+      var m2 = document.querySelector("[data-review-msg]");
+      if (m2) { m2.style.color = "var(--sr-reviewed)"; m2.textContent = "Saved ✓  (" + status + ")"; }
     }).catch(function () {
-      if (msg) { msg.style.color = "var(--sr-warn)"; msg.textContent = "Save failed — check the connection and retry."; }
+      var m2 = document.querySelector("[data-review-msg]");
+      if (m2) { m2.style.color = "var(--sr-revision)"; m2.textContent = "Save failed — check the connection and retry."; }
     });
   }
 
   /* ---------- wire ---------- */
+  function onFilter() { renderList(); }
   function wire() {
     ["srSearch", "srTeam", "srSource", "srAcademy", "srModule", "srLesson", "srSection", "srType", "srStatus", "srDate"].forEach(function (id) {
       var el = $(id); if (!el) return;
-      el.addEventListener(el.tagName === "INPUT" && el.type === "text" ? "input" : "change", renderTable);
+      el.addEventListener(el.tagName === "INPUT" && el.type === "text" ? "input" : "change", onFilter);
     });
     var refresh = $("srRefresh"); if (refresh) refresh.addEventListener("click", reload);
+    // List: click / keyboard select → fill the persistent details panel (no modal).
     $("srList").addEventListener("click", function (e) {
-      var b = e.target.closest("[data-open]"); if (b) openDrawer(b.getAttribute("data-open"));
+      var b = e.target.closest("[data-open]"); if (b) selectSubmission(b.getAttribute("data-open"));
     });
-    $("srDrawerClose").addEventListener("click", closeDrawer);
-    $("srScrim").addEventListener("click", closeDrawer);
-    document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeDrawer(); });
-    $("srDrawerBody").addEventListener("click", function (e) {
-      var b = e.target.closest("[data-review]"); if (b) doReview(b.getAttribute("data-review"));
+    $("srList").addEventListener("keydown", function (e) {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      var b = e.target.closest("[data-open]"); if (b) { e.preventDefault(); selectSubmission(b.getAttribute("data-open")); }
+    });
+    // Details: review actions + copy-link.
+    $("srDetails").addEventListener("click", function (e) {
+      var rev = e.target.closest("[data-review]"); if (rev) { doReview(rev.getAttribute("data-review")); return; }
+      var cp = e.target.closest("[data-copy]"); if (cp) { copyLink(cp); return; }
     });
   }
 
   function reload() {
-    $("srList").innerHTML = '<tr><td colspan="12" class="sr-loading">Loading live data from Supabase…</td></tr>';
-    loadAll().then(function () { renderCards(); populateFilters(); renderTable(); })
-      .catch(function () { $("srList").innerHTML = '<tr><td colspan="12" class="sr-empty">Could not load data from Supabase. Check the connection and Refresh.</td></tr>'; });
+    $("srList").innerHTML = '<div class="sr-loading">Loading live data from Supabase…</div>';
+    renderDetailsEmpty();
+    loadAll().then(function () {
+      renderCards(); populateFilters(); renderList();
+      // Auto-select the first submission so the split view opens populated.
+      var rows = applyFilters();
+      if (rows.length) selectSubmission(rows[0]._table + ":" + rows[0].id);
+      else renderDetailsEmpty();
+    }).catch(function () {
+      $("srList").innerHTML = emptyState("⚠️", "Could not load data", "Check the connection and press Refresh.");
+      renderDetailsEmpty();
+    });
   }
 
   document.addEventListener("DOMContentLoaded", function () {

@@ -32,23 +32,6 @@
   var view = { name: "list", team: null, empId: null };
   var open = { modules: {}, lessons: {} }; // expand/collapse state, keyed by employee+id
 
-  // Timeline event presentation (display only — labels for lesson_activity_log types).
-  var EVENT_LABEL = {
-    identified: "Entered the academy", academy_entered: "Entered the academy", academy_opened: "Opened the academy",
-    module_opened: "Opened a module", lesson_opened: "Started a lesson",
-    section_opened: "Opened a section", section_completed: "Completed a section",
-    kc_started: "Started a Knowledge Check", kc_submitted: "Submitted a Knowledge Check", kc_result: "Knowledge Check graded",
-    assignment_started: "Started an assignment", assignment_submitted: "Submitted an assignment",
-    lesson_completed: "Completed a lesson", module_completed: "Completed a module", academy_completed: "Completed the academy",
-    time: "Study time recorded"
-  };
-  var EVENT_ICON = {
-    identified: "👋", academy_entered: "👋", academy_opened: "🎓",
-    module_opened: "📦", lesson_opened: "📘", section_opened: "📄", section_completed: "✓",
-    kc_started: "🧠", kc_submitted: "🧠", kc_result: "🎯",
-    assignment_started: "📝", assignment_submitted: "📤",
-    lesson_completed: "✅", module_completed: "🏁", academy_completed: "🎓", time: "🕐"
-  };
   // Task/Question values may be rich-text / Google-Docs HTML paste — show plain text.
   function stripHtml(v) {
     var t = String(v == null ? "" : v);
@@ -708,22 +691,110 @@
       tableWrap(["Assignment", "Lesson", "Status", "Score", "Feedback", "File / Link", "Submitted"], body));
   }
 
+  /* ---------------- Learning Timeline (meaningful events, real actions only) ----------------
+     Merges the real learning journey from three live sources — lesson_activity_log
+     (section/module/lesson/academy starts & completions), knowledge_check_responses
+     (KC submitted / passed / failed / reviewed) and submissions (assignment
+     submitted / reviewed / needs revision). Meaningless pings ("identified", time
+     heartbeats) are dropped, duplicates collapsed, and everything is shown newest
+     first with Module · Lesson · Section context + score / duration. No fabricated
+     events — every entry is a real employee (or manager-review) action. */
+  var ACTIVITY_LABEL = {
+    academy_entered: "Started Academy", academy_opened: "Started Academy",
+    module_opened: "Started Module", lesson_opened: "Started Lesson",
+    section_opened: "Started Section", section_completed: "Finished Section",
+    kc_started: "Knowledge Check Started", kc_submitted: "Knowledge Check Submitted",
+    assignment_started: "Assignment Started", assignment_submitted: "Assignment Submitted",
+    lesson_completed: "Lesson Completed", module_completed: "Module Completed", academy_completed: "Academy Completed"
+  };
+  function tlIcon(label) {
+    if (/Passed/.test(label)) return "✅";
+    if (/Failed/.test(label)) return "❌";
+    if (/Needs Revision/.test(label)) return "⚠️";
+    if (/Reviewed/.test(label)) return "📋";
+    if (/Academy Completed/.test(label)) return "🎓";
+    if (/Module Completed/.test(label)) return "🏁";
+    if (/Lesson Completed/.test(label)) return "✅";
+    if (/Finished Section/.test(label)) return "✓";
+    if (/Started Academy/.test(label)) return "🎓";
+    if (/Started Module/.test(label)) return "📦";
+    if (/Started Lesson/.test(label)) return "📘";
+    if (/Started Section/.test(label)) return "📄";
+    if (/Knowledge Check/.test(label)) return "🧠";
+    if (/Assignment/.test(label)) return "📝";
+    return "•";
+  }
+  function moduleNameFor(module_id, lesson_id) {
+    var m = module_id ? moduleById(module_id) : null;
+    if (!m && lesson_id) { var l = lessonById(lesson_id); if (l) m = moduleById(l.moduleId); }
+    return m ? ("M" + (m.moduleNumber || "") + " — " + (m.moduleTitle || "")) : "";
+  }
+  function sectionNameFor(section_id, lesson_id, fallback) {
+    if (fallback) return fallback;
+    if (!section_id) return "";
+    var l = lessonById(lesson_id);
+    var partId = String(section_id).split(":")[0], kind = String(section_id).split(":")[1];
+    if (l) { try { var p = partsOf(l).find(function (x) { return x.id === partId; }); if (p) { var base = partTitle(p); return kind === "kc" ? (base + " · Knowledge Check") : base; } } catch (e) {} }
+    return "";
+  }
+
   function profileTimeline(empId) {
-    var all = activityFor(empId).slice().sort(function (a, b) { return new Date(b.created_at || 0) - new Date(a.created_at || 0); });
-    if (!all.length) return sectionCard("Learning Timeline", '<p class="epd-none">No recorded learning events yet.</p>');
-    var body = all.slice(0, 60).map(function (e) {
-      var mod = e.module_id ? moduleById(e.module_id) : null;
-      var les = e.lesson_id ? lessonById(e.lesson_id) : null;
-      var ctx = [mod ? ("M" + (mod.moduleNumber || "")) : "", les ? (les.lessonTitle || "") : ""].filter(Boolean).join(" · ");
-      var extra = []; if (e.status) extra.push(e.status); if (e.score) extra.push(e.score);
-      return '<div class="epd-tl-item"><span class="epd-tl-ico" aria-hidden="true">' + (EVENT_ICON[e.event_type] || "•") + '</span>' +
-        '<div class="epd-tl-body"><span class="epd-tl-title">' + esc(EVENT_LABEL[e.event_type] || e.event_type) +
+    var ev = [];
+    // 1) lesson_activity_log — navigation / completion events. Skip meaningless
+    //    pings AND the KC-result / submission echoes (those come from their
+    //    authoritative tables below, so nothing is double-counted).
+    var SKIP = { identified: 1, time: 1, kc_result: 1, kc_submitted: 1, assignment_submitted: 1 };
+    activityFor(empId).forEach(function (e) {
+      if (SKIP[e.event_type]) return;
+      var label = ACTIVITY_LABEL[e.event_type];
+      if (!label) return;
+      ev.push({ at: e.created_at, label: label, module_id: e.module_id, lesson_id: e.lesson_id, section_id: e.section_id,
+        sectionTitle: e.detail, score: e.score || "", duration: (e.event_type === "section_completed" && e.time_spent) ? fmtDuration(e.time_spent) : "" });
+    });
+    // 2) knowledge_check_responses — the real KC actions (objective → passed/failed).
+    kcsFor(empId).forEach(function (k) {
+      var passed = k.is_correct === true, failed = k.is_correct === false;
+      var label = passed ? "Knowledge Check Passed" : (failed ? "Knowledge Check Failed" : "Knowledge Check Submitted");
+      ev.push({ at: k.submitted_at, label: label, lesson_id: k.lesson_id, section_id: k.section_id || "",
+        score: k.score || (passed ? "100%" : (failed ? "0%" : "")) });
+      var rs = String(k.review_status || "");
+      if (k.reviewed_at && (/reviewed/i.test(rs) || /needs revision/i.test(rs))) {
+        ev.push({ at: k.reviewed_at, label: /needs revision/i.test(rs) ? "Knowledge Check Needs Revision" : "Knowledge Check Reviewed", lesson_id: k.lesson_id, score: k.score || "" });
+      }
+    });
+    // 3) submissions — assignment submitted + manager review outcome (real actions).
+    subsFor(empId).forEach(function (s) {
+      ev.push({ at: s.createdAt, label: "Assignment Submitted", lesson_id: s.lessonId, score: s.score || "" });
+      if (s.reviewedAt) {
+        var rev = String(s.status || "");
+        ev.push({ at: s.reviewedAt, label: /needs revision/i.test(rev) ? "Assignment Needs Revision" : "Assignment Reviewed", lesson_id: s.lessonId, score: s.score || "" });
+      }
+    });
+
+    // Newest first, then collapse duplicates of the same event on the same target.
+    ev.sort(function (a, b) { return new Date(b.at || 0) - new Date(a.at || 0); });
+    var seen = {}, out = [];
+    ev.forEach(function (e) {
+      var key = e.label + "|" + (e.section_id || e.lesson_id || e.module_id || "");
+      if (seen[key]) return; seen[key] = 1; out.push(e);
+    });
+    if (!out.length) return sectionCard("Learning Timeline", '<p class="epd-none">No learning activity recorded yet.</p>');
+
+    var total = out.length;
+    var body = out.slice(0, 80).map(function (e) {
+      var ctx = [moduleNameFor(e.module_id, e.lesson_id), lessonById(e.lesson_id) ? ("L" + (lessonById(e.lesson_id).lessonNumber || "") + " — " + (lessonById(e.lesson_id).lessonTitle || "")) : "",
+        sectionNameFor(e.section_id, e.lesson_id, e.sectionTitle)].filter(Boolean).join("  ·  ");
+      var extra = [];
+      if (e.score) extra.push("Score " + e.score);
+      if (e.duration) extra.push(e.duration);
+      return '<div class="epd-tl-item"><span class="epd-tl-ico" aria-hidden="true">' + tlIcon(e.label) + '</span>' +
+        '<div class="epd-tl-body"><span class="epd-tl-title">' + esc(e.label) +
           (extra.length ? ' <span class="epd-tl-extra">' + esc(extra.join(" · ")) + '</span>' : '') + '</span>' +
           (ctx ? '<span class="epd-tl-ctx">' + esc(ctx) + '</span>' : '') + '</div>' +
-        '<span class="epd-tl-when" title="' + esc(fmtDateTime(e.created_at)) + '">' + esc(timeAgo(e.created_at)) + '</span></div>';
+        '<span class="epd-tl-when" title="' + esc(timeAgo(e.at)) + '">' + esc(fmtDateTime(e.at)) + '</span></div>';
     }).join("");
-    return sectionCard("Learning Timeline (" + all.length + ")", '<div class="epd-timeline">' + body +
-      (all.length > 60 ? '<p class="epd-none">Showing the 60 most recent events.</p>' : '') + '</div>');
+    return sectionCard("Learning Timeline (" + total + ")", '<div class="epd-timeline">' + body +
+      (total > 80 ? '<p class="epd-none">Showing the 80 most recent events.</p>' : '') + '</div>');
   }
 
   /* ============================================================

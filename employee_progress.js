@@ -28,8 +28,34 @@
   var NA = "Not available";
 
   // Navigation state (a small stack we can render from, no page reloads).
-  var view = { name: "teams", team: null, empId: null };
+  // Default is the central Employees list; "teams" is an optional grouping.
+  var view = { name: "list", team: null, empId: null };
   var open = { modules: {}, lessons: {} }; // expand/collapse state, keyed by employee+id
+
+  // Timeline event presentation (display only — labels for lesson_activity_log types).
+  var EVENT_LABEL = {
+    identified: "Entered the academy", academy_entered: "Entered the academy", academy_opened: "Opened the academy",
+    module_opened: "Opened a module", lesson_opened: "Started a lesson",
+    section_opened: "Opened a section", section_completed: "Completed a section",
+    kc_started: "Started a Knowledge Check", kc_submitted: "Submitted a Knowledge Check", kc_result: "Knowledge Check graded",
+    assignment_started: "Started an assignment", assignment_submitted: "Submitted an assignment",
+    lesson_completed: "Completed a lesson", module_completed: "Completed a module", academy_completed: "Completed the academy",
+    time: "Study time recorded"
+  };
+  var EVENT_ICON = {
+    identified: "👋", academy_entered: "👋", academy_opened: "🎓",
+    module_opened: "📦", lesson_opened: "📘", section_opened: "📄", section_completed: "✓",
+    kc_started: "🧠", kc_submitted: "🧠", kc_result: "🎯",
+    assignment_started: "📝", assignment_submitted: "📤",
+    lesson_completed: "✅", module_completed: "🏁", academy_completed: "🎓", time: "🕐"
+  };
+  // Task/Question values may be rich-text / Google-Docs HTML paste — show plain text.
+  function stripHtml(v) {
+    var t = String(v == null ? "" : v);
+    if (t.indexOf("<") < 0 && t.indexOf("&") < 0) return t;
+    return t.replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&")
+      .replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&quot;/gi, '"').replace(/\s+/g, " ").trim();
+  }
 
   /* ---------------- tiny helpers ---------------- */
   function $(id) { return document.getElementById(id); }
@@ -246,8 +272,47 @@
     fillSelect($("epModule"), uniqueSorted(S.rows.map(function (r) { return r.currentModule; })));
   }
 
+  // Segmented control: All Employees ↔ By Team.
+  function viewToggle(active) {
+    return '<div class="epd-seg">' +
+      '<button type="button" class="epd-seg-btn' + (active === "list" ? " is-on" : "") + '" data-viewmode="list">All Employees</button>' +
+      '<button type="button" class="epd-seg-btn' + (active === "teams" ? " is-on" : "") + '" data-viewmode="teams">By Team</button>' +
+    '</div>';
+  }
+
   /* ============================================================
-     VIEW 1 — TEAMS (default)
+     VIEW — EMPLOYEES (central dashboard, default)
+     ============================================================ */
+  function renderEmployeeList() {
+    var rows = filteredRows().slice().sort(function (a, b) {
+      // Pending reviews first, then most recently active.
+      if ((b.pending > 0) !== (a.pending > 0)) return (b.pending > 0 ? 1 : 0) - (a.pending > 0 ? 1 : 0);
+      return new Date(b.lastActive || 0) - new Date(a.lastActive || 0) || a.name.localeCompare(b.name);
+    });
+    var head = '<div class="epd-view-title"><h2>Employees</h2><span class="epd-sub">' + rows.length + ' / ' + S.rows.length + '</span>' + viewToggle("list") + '</div>';
+    if (!rows.length) { setView(head + emptyState("👥", "No employees match the current filters.")); return; }
+    var body = rows.map(function (r) {
+      var pos = [r.currentModule, r.currentLesson].filter(function (v) { return v && v !== NA; }).join(" · ") || NA;
+      return '<tr class="epd-clickrow" data-emp="' + esc(r.id) + '" tabindex="0" role="button">' +
+        '<td><span class="epd-name"><span class="epd-avatar">' + esc(initials(r.name)) + '</span><span><span class="epd-name-t">' + esc(r.name) + '</span><span class="epd-name-id">' + esc(r.id) + '</span></span></span></td>' +
+        '<td class="epd-dim">' + esc(r.team) + '</td>' +
+        '<td class="epd-dim">' + esc(r.academyName) + '</td>' +
+        '<td>' + statusChip(r.status) + '</td>' +
+        '<td class="epd-progcell"><span class="epd-progwrap">' + bar(r.overall, r.overall >= 100) + '<span class="epd-progtxt">' + r.overall + '%</span></span></td>' +
+        '<td class="epd-dim">' + esc(pos) + '</td>' +
+        '<td class="epd-dim" title="' + esc(fmtDateTime(r.lastActive)) + '"><bdi>' + esc(timeAgo(r.lastActive)) + '</bdi></td>' +
+        '<td>' + (r.pending > 0 ? '<span class="epd-badge-warn">' + r.pending + '</span>' : '<span class="epd-dim">0</span>') + '</td>' +
+        '<td><button type="button" class="epd-btn epd-btn-sm" data-emp="' + esc(r.id) + '">View Profile</button></td>' +
+      '</tr>';
+    }).join("");
+    setView(head +
+      '<div class="epd-tablewrap"><table class="epd-table"><thead><tr>' +
+        '<th>Employee</th><th>Team</th><th>Academy</th><th>Status</th><th>Overall Progress</th><th>Current Position</th><th>Last Activity</th><th>Pending</th><th></th>' +
+      '</tr></thead><tbody>' + body + '</tbody></table></div>');
+  }
+
+  /* ============================================================
+     VIEW — TEAMS (optional grouping)
      ============================================================ */
   function teamAggregate(team, rows) {
     var emps = rows.filter(function (r) { return r.team === team; });
@@ -288,7 +353,7 @@
       '</div>';
     }).join("");
 
-    setView('<div class="epd-view-title"><h2>Teams</h2><span class="epd-sub">' + teams.length + ' teams · ' + rows.length + ' employees</span></div>' +
+    setView('<div class="epd-view-title"><h2>Teams</h2><span class="epd-sub">' + teams.length + ' teams · ' + rows.length + ' employees</span>' + viewToggle("teams") + '</div>' +
       (teams.length ? '<div class="epd-teams">' + html + '</div>'
         : emptyState("🏷️", "No teams match the current filters.")));
   }
@@ -578,8 +643,87 @@
     var legend = '<div class="epd-legend">' +
       '<span>✓ Completed</span><span>○ In Progress</span><span>— Not Started</span><span>🔒 Locked</span></div>';
 
-    setView('<div class="epd-view-title"><h2>Employee</h2><span class="epd-sub">Modules → Lessons → Sections → Knowledge Check / Assignment</span></div>' +
-      head + tree + legend);
+    setView('<div class="epd-view-title"><h2>Learning Profile</h2><span class="epd-sub">' + esc(r.name) + '</span></div>' +
+      head +
+      sectionCard("Module / Lesson / Section Hierarchy", tree + legend) +
+      profileKcHistory(empId) +
+      profileAsgHistory(empId) +
+      profileTimeline(empId));
+  }
+
+  /* ---------------- Learning Profile sections (history + timeline) ---------------- */
+  function sectionCard(title, inner) { return '<section class="epd-pcard"><h3 class="epd-pcard-h">' + esc(title) + '</h3>' + inner + '</section>'; }
+  function tableWrap(cols, body) {
+    return '<div class="epd-tablewrap"><table class="epd-table"><thead><tr>' +
+      cols.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join("") + '</tr></thead><tbody>' + body + '</tbody></table></div>';
+  }
+  function lessonLabel(id) { var l = lessonById(id); return l ? ("L" + (l.lessonNumber || "") + " — " + (l.lessonTitle || "")) : (id || "—"); }
+  function kcHistChip(k) {
+    var rs = String(k.review_status || "");
+    if (/needs revision/i.test(rs)) return chip("Needs Revision", "warn");
+    if (/pending/i.test(rs)) return chip("Pending Review", "prog");
+    if (k.is_correct === true) return chip("Correct", "done");
+    if (k.is_correct === false) return chip("Incorrect", "warn");
+    if (/reviewed/i.test(rs)) return chip("Reviewed", "done");
+    return chip("Submitted", "prog");
+  }
+
+  function profileKcHistory(empId) {
+    var list = kcsFor(empId).slice().sort(function (a, b) { return new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0); });
+    if (!list.length) return sectionCard("Knowledge Check History", '<p class="epd-none">No Knowledge Check submissions yet.</p>');
+    var body = list.map(function (k) {
+      var score = k.score || (k.is_correct === true ? "100%" : (k.is_correct === false ? "0%" : "—"));
+      return '<tr>' +
+        '<td>' + esc(stripHtml(k.question || "Knowledge Check").slice(0, 90)) + '</td>' +
+        '<td class="epd-dim">' + esc(lessonLabel(k.lesson_id)) + '</td>' +
+        '<td>' + kcHistChip(k) + '</td>' +
+        '<td>' + esc(score) + '</td>' +
+        '<td class="epd-dim">' + esc(k.feedback || "—") + '</td>' +
+        '<td class="epd-dim">' + esc(fmtDateTime(k.submitted_at)) + '</td>' +
+      '</tr>';
+    }).join("");
+    return sectionCard("Knowledge Check History (" + list.length + ")",
+      tableWrap(["Question", "Lesson", "Result", "Score", "Feedback", "Submitted"], body));
+  }
+
+  function profileAsgHistory(empId) {
+    var list = subsFor(empId).slice().sort(function (a, b) { return new Date(b.createdAt || 0) - new Date(a.createdAt || 0); });
+    if (!list.length) return sectionCard("Assignment History", '<p class="epd-none">No assignment submissions yet.</p>');
+    var body = list.map(function (s) {
+      var rev = s.status || "Pending Review";
+      var slug = /needs revision/i.test(rev) ? "warn" : (/pending/i.test(rev) ? "prog" : "done");
+      var link = s.submissionLink || s.file_url || "";
+      var linkHtml = link ? '<a href="' + esc(link) + '" target="_blank" rel="noopener">Open ↗</a>' : (s.textAnswer ? '<span class="epd-dim">Text</span>' : '<span class="epd-dim">—</span>');
+      return '<tr>' +
+        '<td>' + esc(s.assignmentTitle || "Assignment") + '</td>' +
+        '<td class="epd-dim">' + esc(lessonLabel(s.lessonId)) + '</td>' +
+        '<td>' + chip(rev, slug) + '</td>' +
+        '<td>' + esc(s.score || "—") + '</td>' +
+        '<td class="epd-dim">' + esc(s.feedback || "—") + '</td>' +
+        '<td>' + linkHtml + '</td>' +
+        '<td class="epd-dim">' + esc(fmtDateTime(s.createdAt)) + '</td>' +
+      '</tr>';
+    }).join("");
+    return sectionCard("Assignment History (" + list.length + ")",
+      tableWrap(["Assignment", "Lesson", "Status", "Score", "Feedback", "File / Link", "Submitted"], body));
+  }
+
+  function profileTimeline(empId) {
+    var all = activityFor(empId).slice().sort(function (a, b) { return new Date(b.created_at || 0) - new Date(a.created_at || 0); });
+    if (!all.length) return sectionCard("Learning Timeline", '<p class="epd-none">No recorded learning events yet.</p>');
+    var body = all.slice(0, 60).map(function (e) {
+      var mod = e.module_id ? moduleById(e.module_id) : null;
+      var les = e.lesson_id ? lessonById(e.lesson_id) : null;
+      var ctx = [mod ? ("M" + (mod.moduleNumber || "")) : "", les ? (les.lessonTitle || "") : ""].filter(Boolean).join(" · ");
+      var extra = []; if (e.status) extra.push(e.status); if (e.score) extra.push(e.score);
+      return '<div class="epd-tl-item"><span class="epd-tl-ico" aria-hidden="true">' + (EVENT_ICON[e.event_type] || "•") + '</span>' +
+        '<div class="epd-tl-body"><span class="epd-tl-title">' + esc(EVENT_LABEL[e.event_type] || e.event_type) +
+          (extra.length ? ' <span class="epd-tl-extra">' + esc(extra.join(" · ")) + '</span>' : '') + '</span>' +
+          (ctx ? '<span class="epd-tl-ctx">' + esc(ctx) + '</span>' : '') + '</div>' +
+        '<span class="epd-tl-when" title="' + esc(fmtDateTime(e.created_at)) + '">' + esc(timeAgo(e.created_at)) + '</span></div>';
+    }).join("");
+    return sectionCard("Learning Timeline (" + all.length + ")", '<div class="epd-timeline">' + body +
+      (all.length > 60 ? '<p class="epd-none">Showing the 60 most recent events.</p>' : '') + '</div>');
   }
 
   /* ============================================================
@@ -590,7 +734,8 @@
     return '<button type="button" class="epd-crumb" data-nav="' + action + '">' + esc(label) + '</button>';
   }
   function renderCrumbs() {
-    var parts = [crumb("Dashboard", "teams", view.name === "teams")];
+    var parts = [crumb("Dashboard", "list", view.name === "list")];
+    if (view.name === "teams") parts.push(crumb("Teams", "teams", true));
     if (view.name === "team" || view.name === "employee") {
       parts.push(crumb(view.team || "Team", "team", view.name === "team"));
     }
@@ -607,8 +752,10 @@
     renderCrumbs();
     if (view.name === "team" && view.team) renderTeamDetail(view.team);
     else if (view.name === "employee" && view.empId) renderEmployeeDetail(view.empId);
-    else { view.name = "teams"; renderTeams(); }
+    else if (view.name === "teams") renderTeams();
+    else { view.name = "list"; renderEmployeeList(); }
   }
+  function goList() { view = { name: "list", team: null, empId: null }; route(); }
   function goTeams() { view = { name: "teams", team: null, empId: null }; route(); }
   function goTeam(team) { view = { name: "team", team: team, empId: null }; route(); }
   function goEmployee(empId) {
@@ -659,13 +806,16 @@
     crumbs.addEventListener("click", function (e) {
       var b = e.target.closest("[data-nav]"); if (!b) return;
       var nav = b.getAttribute("data-nav");
-      if (nav === "teams") goTeams();
+      if (nav === "list") goList();
+      else if (nav === "teams") goTeams();
       else if (nav === "team" && view.team) goTeam(view.team);
     });
 
     var vroot = $("epView");
     vroot.addEventListener("click", function (e) {
       var t = e.target;
+      // View-mode toggle: All Employees ↔ By Team
+      var vm = t.closest("[data-viewmode]"); if (vm) { vm.getAttribute("data-viewmode") === "teams" ? goTeams() : goList(); return; }
       // Teams view: View Team
       var teamBtn = t.closest("[data-team]"); if (teamBtn && !teamBtn.disabled) { goTeam(teamBtn.getAttribute("data-team")); return; }
       // Team view: open employee

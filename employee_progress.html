@@ -14,7 +14,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Learning Dashboard · Admin</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="styles.css?v=ep-2" />
+  <link rel="stylesheet" href="styles.css?v=ep-3" />
   <script src="identity.js"></script>
 
   <!-- Self-contained dashboard styles (scoped .epd-*, so no other page is affected). -->
@@ -189,6 +189,34 @@
 
     .epd-legend { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--epd-dim); margin:10px 2px 0; }
     .epd-legend span { display:inline-flex; align-items:center; gap:5px; }
+
+    /* View-mode segmented control (All Employees / By Team) */
+    .epd-view-title { flex-wrap:wrap; }
+    .epd-seg { display:inline-flex; margin-inline-start:auto; border:1px solid var(--epd-line); border-radius:9px; overflow:hidden; background:var(--epd-card); }
+    .epd-seg-btn { border:0; background:transparent; color:var(--epd-dim); font-size:12.5px; font-weight:700; padding:7px 14px; cursor:pointer; }
+    .epd-seg-btn.is-on { background:var(--epd-brand); color:#fff; }
+
+    /* Employee list: two-line name + id */
+    .epd-name > span { display:flex; flex-direction:column; line-height:1.25; }
+    .epd-name-t { font-weight:700; }
+    .epd-name-id { font-size:11px; font-weight:600; color:var(--epd-dim); }
+
+    /* Learning Profile section cards */
+    .epd-pcard { background:var(--epd-card); border:1px solid var(--epd-line); border-radius:16px; box-shadow:var(--epd-shadow); padding:16px 18px; margin-top:16px; }
+    .epd-pcard-h { font-size:13.5px; font-weight:800; margin:0 0 13px; letter-spacing:-.01em; }
+    .epd-pcard .epd-tree { margin:0; }
+    .epd-pcard .epd-tablewrap { box-shadow:none; }
+
+    /* Timeline */
+    .epd-timeline { display:flex; flex-direction:column; gap:0; }
+    .epd-tl-item { display:flex; align-items:flex-start; gap:12px; padding:10px 4px; border-bottom:1px solid var(--epd-line); }
+    .epd-tl-item:last-child { border-bottom:0; }
+    .epd-tl-ico { width:26px; height:26px; border-radius:50%; background:var(--epd-soft); display:inline-flex; align-items:center; justify-content:center; font-size:14px; flex:0 0 auto; }
+    .epd-tl-body { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+    .epd-tl-title { font-size:13.5px; font-weight:600; }
+    .epd-tl-extra { font-size:12px; color:var(--epd-prog); font-weight:700; }
+    .epd-tl-ctx { font-size:12px; color:var(--epd-dim); }
+    .epd-tl-when { font-size:12px; color:var(--epd-dim); white-space:nowrap; flex:0 0 auto; }
   </style>
 </head>
 <body>
@@ -267,7 +295,7 @@
 
         <div class="page-head reveal">
           <h1>Learning Dashboard</h1>
-          <p class="muted">Team → Employee → Module → Lesson → Section → Knowledge Check / Assignment. Live Supabase data — admin only.</p>
+          <p class="muted">Monitor every employee's learning progress in real time. Click an employee to open their full Learning Profile. Live Supabase data — admin only.</p>
         </div>
 
         <!-- Global summary cards -->
@@ -324,6 +352,6 @@
   <script src="supabase.js"></script>
   <script src="academies.js"></script>
   <script src="script.js"></script>
-  <script src="employee_progress.js?v=ep-2"></script>
+  <script src="employee_progress.js?v=ep-3"></script>
 </body>
 </html>

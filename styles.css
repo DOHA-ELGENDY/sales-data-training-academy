@@ -2136,3 +2136,23 @@ html[dir="rtl"] .ep-drawer { transform: translateX(-100%); }
   .ep-drawer { width: 100vw; }
   .ep-filter { min-width: 46%; flex: 1; }
 }
+
+/* ---- Persistent progress: Continue banner + restored Knowledge Check ---- */
+.lp-continue {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+  background: #eef4ff; border: 1px solid #cdd8ea; border-radius: var(--radius-sm);
+  padding: 13px 18px; margin: 0 0 16px;
+}
+.lp-continue-text { font-size: 14px; color: var(--text); }
+.lp-continue-where { color: var(--primary); font-weight: 700; }
+@media (prefers-color-scheme: dark) { .lp-continue { background: #16233d; border-color: #24406e; } }
+
+.kc-badge-done { background: #e7f7ec; color: #0a7c2f; }
+.kc-restore { display: flex; flex-direction: column; gap: 6px; margin-top: 10px;
+  background: #f6faf7; border: 1px solid #cdebd7; border-radius: var(--radius-sm); padding: 12px 14px; }
+.kc-restore-row { display: flex; gap: 10px; font-size: 13.5px; }
+.kc-restore-row > span:first-child { min-width: 110px; color: var(--muted); font-weight: 700; }
+.kc-restore-row > span:last-child { word-break: break-word; }
+.kc-restore-ok { color: #0a7c2f; font-weight: 700; }
+.kc-restore-bad { color: #b91c1c; font-weight: 700; }
+.kc-restore-pending { color: #b45309; font-weight: 700; }

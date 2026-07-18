@@ -401,6 +401,73 @@ async function upsertSubmissionFull(sub) {
   throw new Error("submissions upsert: too many missing columns");
 }
 
+/* ============================================================
+   Persistent employee progress (Supabase-authoritative, cache mirror).
+   learning_progress is keyed by id = lp_<employee>__<lesson> (one row per
+   employee+lesson) so refreshes / repeated clicks upsert the SAME row.
+   ============================================================ */
+function progressSlug(v) { return String(v == null ? "" : v).replace(/[^a-zA-Z0-9_]/g, "").slice(0, 60); }
+function lessonProgressId(employeeId, lessonId) { return "lp_" + progressSlug(employeeId) + "__" + progressSlug(lessonId); }
+
+function progressRest(pathAndQuery) {
+  if (typeof SUPABASE_URL === "undefined" || !SUPABASE_URL) return Promise.resolve([]);
+  const base = SUPABASE_URL.replace(/\/+$/, "") + "/rest/v1/";
+  return fetch(base + pathAndQuery, { headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": "Bearer " + SUPABASE_ANON_KEY } })
+    .then(function (r) { return r.ok ? r.json() : []; }).catch(function () { return []; });
+}
+
+/* One employee's saved lesson progress (authoritative source for resume). */
+function fetchLessonProgress(employeeId) {
+  if (!employeeId) return Promise.resolve([]);
+  return progressRest("learning_progress?employee_id=eq." + encodeURIComponent(employeeId) + "&select=*");
+}
+/* One employee's profile row (current position for "Continue Learning"). */
+function fetchEmployeeProfile(employeeId) {
+  if (!employeeId) return Promise.resolve(null);
+  return progressRest("employee_profiles?id=eq." + encodeURIComponent(employeeId) + "&select=*&limit=1")
+    .then(function (rows) { return (rows && rows[0]) || null; });
+}
+/* One employee's Knowledge Check responses (to restore completed KCs read-only). */
+function fetchKcResponsesFor(employeeId) {
+  if (!employeeId) return Promise.resolve([]);
+  return progressRest("knowledge_check_responses?employee_id=eq." + encodeURIComponent(employeeId) + "&select=*&order=submitted_at.desc");
+}
+
+/* Upsert the completed-step set + status for one employee+lesson. Idempotent
+   (deterministic id, on_conflict=id) and tolerant of a not-yet-migrated table
+   (drops completed_steps/current_section_id if absent, so status still saves). */
+async function upsertLessonProgress(p) {
+  if (!backendReady() || !p || !p.employeeId || !p.lessonId) return false;
+  const now = new Date().toISOString();
+  let row = {
+    id: lessonProgressId(p.employeeId, p.lessonId),
+    employee_id: p.employeeId, employee_name: p.employeeName || "", team: p.team || "",
+    academy_key: p.academyKey || "", module_id: p.moduleId || "", lesson_id: p.lessonId,
+    status: p.status || "in-progress",
+    completed_steps: JSON.stringify(p.completedSteps || []),
+    current_section_id: p.currentSectionId || "",
+    last_activity: now, updated_at: now
+  };
+  if (p.completed) row.completed_at = now;
+  const base = SUPABASE_URL.replace(/\/+$/, "") + "/rest/v1/learning_progress?on_conflict=id";
+  const headers = {
+    "apikey": SUPABASE_ANON_KEY, "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+    "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates,return=minimal"
+  };
+  for (let i = 0; i < 12; i++) {
+    try {
+      const res = await fetch(base, { method: "POST", headers, body: JSON.stringify(row) });
+      if (res.ok) return true;
+      let txt = ""; try { txt = await res.text(); } catch (e) {}
+      const mm = txt.match(/'([A-Za-z0-9_]+)' column/) || txt.match(/column "?([A-Za-z0-9_]+)"?\s+.*does not exist/i);
+      const col = mm ? mm[1] : null;
+      if (col && (col in row)) { delete row[col]; continue; }
+      return false; // non-column error → don't throw (progress persistence is best-effort)
+    } catch (e) { return false; }
+  }
+  return false;
+}
+
 /* Manager updates a submission's review fields. */
 function updateSubmissionRemote(id, patch) {
   const cache = loadSubmissionsCache().map(s => s.id === id ? Object.assign({}, s, patch) : s);

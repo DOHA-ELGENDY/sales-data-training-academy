@@ -42,6 +42,20 @@ window.Identity = (function () {
   var SELECTED_ACADEMY_KEY = "sdta_selected_academy"; // must match academies.js
 
   function uid() { return "emp_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
+  /* STABLE employee id derived from the typed identity, so the SAME person keys
+     to the SAME progress on any browser/device (cross-device resume).
+       "ECO233 - ROWIDA"  -> "ECO233"      (leading employee code)
+       "#EC0093-Mariem Nagy" -> "EC0093"
+       "EMAN"             -> "emp_eman"    (stable slug when no code)
+     Never random — so it does not change per browser. */
+  function stableEmployeeId(name) {
+    var n = String(name || "").trim();
+    if (!n) return uid();
+    var m = n.match(/^#?\s*([A-Za-z]{1,6}\d{2,7})/); // leading code like ECO233 / EC0093 / SA0022
+    if (m) return m[1].toUpperCase();
+    var slug = n.toLowerCase().replace(/[^a-z0-9؀-ۿ]+/g, "_").replace(/^_+|_+$/g, "");
+    return slug ? ("emp_" + slug) : uid();
+  }
   function load() {
     try { var raw = localStorage.getItem(KEY); if (raw) return JSON.parse(raw); } catch (e) {}
     return null;
@@ -69,8 +83,11 @@ window.Identity = (function () {
     info = info || {};
     var existing = load() || {};
     var name = String(info.employeeName || "").trim();
+    // Always derive a STABLE id from the typed name (ignore any old random id) so
+    // the same employee resumes their Supabase progress across devices.
+    var stableId = stableEmployeeId(name);
     var rec = {
-      employeeId: existing.employeeId || uid(),
+      employeeId: stableId || existing.employeeId || uid(),
       employeeName: name,
       team: String(info.team || "").trim(),
       role: name.toLowerCase() === "admin" ? "admin" : "employee",

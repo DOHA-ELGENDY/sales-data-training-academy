@@ -38,11 +38,15 @@ document.addEventListener("DOMContentLoaded", () => {
     container.querySelectorAll(".level-card").forEach(c => c.remove());
   }
 
-  // Render from the local cache first (instant), then sync with Google Sheets.
-  renderCmModules(teamKey, ac);
-  renderAcademyProgress(teamKey);
-  syncContentFromServer().then(ok => {
-    if (ok) { renderCmModules(teamKey, ac); renderAcademyProgress(teamKey); }
+  // Hydrate persistent progress from Supabase (AUTHORITATIVE) into the local
+  // cache BEFORE rendering, so completed sections / Knowledge Checks / unlocked
+  // steps restore on any device. hydrateProgress always resolves (falls back to
+  // the local cache on any error), so the page never hangs.
+  const renderAll = () => { renderCmModules(teamKey, ac); renderAcademyProgress(teamKey); };
+  hydrateProgress(teamKey).then(() => {
+    renderAll();
+    showContinueBanner(teamKey);
+    syncContentFromServer().then(ok => { if (ok) renderAll(); });
   });
 
   // Lesson accordion: clicking a lesson header expands it and collapses the
@@ -186,7 +190,113 @@ function saveCompletedStep(ctx, stepId) {
   const set = loadCompletedSteps(ctx);
   set.add(stepId);
   try { localStorage.setItem(stepsStorageKey(ctx), JSON.stringify(Array.from(set))); } catch (e) {}
+  persistProgress(ctx, set, { currentSectionId: stepId }); // Supabase-authoritative mirror (idempotent)
   return set;
+}
+
+/* ============================================================
+   PERSISTENT PROGRESS — Supabase authoritative, localStorage is a cache.
+   On load we hydrate the localStorage step cache + lesson status from Supabase
+   so a returning employee (any device) restores completed sections / KCs /
+   unlocked steps. On every completion we upsert the same row (idempotent).
+   ============================================================ */
+/* Mirror one lesson's completed-step set to Supabase (best-effort, non-blocking). */
+function persistProgress(ctx, set, opts) {
+  opts = opts || {};
+  if (typeof upsertLessonProgress !== "function" || !ctx || !ctx.employee || !ctx.lessonId) return;
+  var ident = (typeof Identity !== "undefined") ? Identity.get() : null;
+  var lesson = (typeof loadLessons === "function" ? loadLessons() : []).find(function (l) { return l.id === ctx.lessonId; }) || {};
+  try {
+    upsertLessonProgress({
+      employeeId: ctx.employee, employeeName: ident ? ident.employeeName : "", team: ident ? ident.team : "",
+      academyKey: ctx.academyKey, moduleId: ctx.moduleId || lesson.moduleId || "", lessonId: ctx.lessonId,
+      status: opts.completed ? "completed" : "in-progress",
+      completedSteps: Array.from(set || []),
+      currentSectionId: opts.currentSectionId || "",
+      completed: !!opts.completed
+    });
+  } catch (e) {}
+}
+
+/* Knowledge Check restore cache: knowledge_check_id -> saved response row. */
+var KC_RESTORE = {};
+function cacheKcResponses(rows) {
+  KC_RESTORE = {};
+  (rows || []).forEach(function (r) { if (r && r.knowledge_check_id) KC_RESTORE[r.knowledge_check_id] = r; });
+}
+function kcRestoreFor(kcId) { return (kcId && KC_RESTORE[kcId]) || null; }
+function kcNeedsResubmit(r) { return !!r && /needs revision/i.test(String(r.review_status || "")); }
+
+/* Hydrate the localStorage progress cache from Supabase BEFORE rendering. Always
+   resolves (falls back to whatever cache exists on any failure). */
+function hydrateProgress(teamKey) {
+  var ident = (typeof Identity !== "undefined") ? Identity.get() : null;
+  var empId = ident ? (ident.employeeId || "") : "";
+  if (!empId) return Promise.resolve();
+  var jobs = [];
+  if (typeof fetchLessonProgress === "function") {
+    jobs.push(fetchLessonProgress(empId).then(function (rows) {
+      (rows || []).forEach(function (row) {
+        var steps = [];
+        try { steps = JSON.parse(row.completed_steps || "[]"); } catch (e) { steps = []; }
+        if (Array.isArray(steps) && steps.length) {
+          var academyForKey = row.academy_key || teamKey || "";
+          var key = "lp:steps:" + academyForKey + ":" + (row.module_id || "") + ":" + (row.lesson_id || "") + ":" + empId;
+          try {
+            var cur = []; try { cur = JSON.parse(localStorage.getItem(key) || "[]"); } catch (e2) {}
+            localStorage.setItem(key, JSON.stringify(Array.from(new Set(cur.concat(steps))))); // union — never lose local progress
+          } catch (e3) {}
+        }
+        if (row.lesson_id && typeof setLessonStatus === "function") {
+          if (row.status === "completed") setLessonStatus(teamKey, row.lesson_id, "completed");
+          else if (row.status === "in-progress" && !(typeof isLessonCompleted === "function" && isLessonCompleted(teamKey, row.lesson_id))) setLessonStatus(teamKey, row.lesson_id, "in-progress");
+        }
+      });
+    }).catch(function () {}));
+  }
+  if (typeof loadSubmissions === "function") jobs.push(loadSubmissions().catch(function () {})); // assignment restore (refresh cache)
+  if (typeof fetchKcResponsesFor === "function") jobs.push(fetchKcResponsesFor(empId).then(cacheKcResponses).catch(function () {}));
+  return Promise.all(jobs).catch(function () {});
+}
+
+/* Small CSS.escape fallback for querySelector by id. */
+function lpCssEsc(v) { return String(v == null ? "" : v).replace(/["\\\]]/g, "\\$&"); }
+
+/* "Continue Learning" — restore current position from employee_profiles. */
+function showContinueBanner(teamKey) {
+  var ident = (typeof Identity !== "undefined") ? Identity.get() : null;
+  if (!ident || !ident.employeeId || typeof fetchEmployeeProfile !== "function") return;
+  fetchEmployeeProfile(ident.employeeId).then(function (p) {
+    if (!p || !p.current_lesson_id) return;
+    if (document.getElementById("lpContinue")) return;
+    var head = document.querySelector(".page-head"); if (!head) return;
+    var b = document.createElement("div");
+    b.id = "lpContinue"; b.className = "lp-continue reveal";
+    b.innerHTML = '<div class="lp-continue-text">مرحبًا بعودتك، <strong>' + escHtml(ident.employeeName) + '</strong>' +
+      (p.current_lesson_title ? ' — <span class="lp-continue-where">' + escHtml(p.current_lesson_title) + '</span>' : '') + '</div>' +
+      '<button type="button" class="btn btn-primary" id="lpContinueBtn">Continue Learning →</button>';
+    head.parentNode.insertBefore(b, head.nextSibling);
+    var btn = document.getElementById("lpContinueBtn");
+    if (btn) btn.addEventListener("click", function () { openLessonAt(p.current_module_id, p.current_lesson_id); });
+  }).catch(function () {});
+}
+
+/* Open a specific module + lesson and its first available step (resume). */
+function openLessonAt(moduleId, lessonId) {
+  var container = document.getElementById("learningPath"); if (!container) return;
+  var card = moduleId ? container.querySelector('.level-card[data-module-id="' + lpCssEsc(moduleId) + '"]') : null;
+  if (card && !card.classList.contains("open")) { var h = card.querySelector("[data-acc-toggle], .level-head"); if (h) h.click(); }
+  setTimeout(function () {
+    var item = container.querySelector('.lesson-acc-item[data-lesson-id="' + lpCssEsc(lessonId) + '"]');
+    if (!item) return;
+    if (!item.classList.contains("open")) { var lh = item.querySelector("[data-lesson-toggle]"); if (lh) lh.click(); }
+    item.scrollIntoView({ behavior: "smooth", block: "start" });
+    setTimeout(function () {
+      var host = item.querySelector(".lp-parts");
+      var avail = host ? host.querySelector(".lp-part-item.is-available .lp-part-head") : null;
+      if (avail) avail.click();
+    }, 220);
+  }, 160);
 }
 
 /* ---- Section presentation helpers (display only — no data/model changes) ---- */
@@ -513,7 +623,49 @@ function enhanceKnowledgeCheck(block) {
   let kc;
   try { kc = JSON.parse(block.getAttribute("data-kc")); } catch (e) { return; }
   block.setAttribute("data-kc-ready", "1");
+  // RESTORE: if this employee already submitted this Knowledge Check, show it
+  // completed + read-only (unless the manager asked for a revision) — never
+  // re-ask. The response row is keyed by employee_id + knowledge_check_id, so no
+  // duplicate row is created on reload.
+  var saved = (typeof kcRestoreFor === "function") ? kcRestoreFor(kc.id) : null;
+  if (saved && !kcNeedsResubmit(saved)) {
+    block.classList.add("is-answered", "is-submitted");
+    if (saved.is_correct === true) block.classList.add("is-correct");
+    else if (saved.is_correct === false) block.classList.add("is-incorrect");
+    block.innerHTML = kcCompletedHtml(kc, saved);
+    // If the step itself isn't marked done yet, still let them proceed.
+    var stepItem = block.closest(".lp-part-item");
+    var host = block.closest(".lp-parts");
+    if (stepItem && host) {
+      var done = loadCompletedSteps(hostRevealContext(host));
+      if (!done.has(stepItem.getAttribute("data-step-id"))) { var c = block.querySelector(".kc-continue"); if (c) c.hidden = false; }
+    }
+    return;
+  }
   block.innerHTML = kcWidgetHtml(kc);
+}
+
+/* Read-only "Knowledge Check Completed" card for a restored submission. */
+function kcCompletedHtml(kc, r) {
+  var reviewed = /reviewed/i.test(String(r.review_status || "")) && !/needs revision/i.test(String(r.review_status || ""));
+  var result = (r.is_correct === true) ? '<span class="kc-restore-ok">✔ Correct</span>'
+    : (r.is_correct === false) ? '<span class="kc-restore-bad">✗ Incorrect</span>'
+    : '<span class="kc-restore-pending">' + escHtml(r.review_status || "Submitted") + '</span>';
+  var ans = r.text_answer ? escHtml(r.text_answer)
+    : (r.file_name ? ('📄 ' + escHtml(r.file_name))
+    : (r.document_url ? ('<a href="' + escHtml(r.document_url) + '" target="_blank" rel="noopener">Open document ↗</a>')
+    : (r.file_url ? ('<a href="' + escHtml(r.file_url) + '" target="_blank" rel="noopener">Open file ↗</a>')
+    : (r.is_correct != null ? 'Answered' : '—'))));
+  var rows =
+    '<div class="kc-restore-row"><span>Your answer</span><span>' + ans + '</span></div>' +
+    '<div class="kc-restore-row"><span>Result</span><span>' + result + '</span></div>' +
+    '<div class="kc-restore-row"><span>Submitted</span><span>' + escHtml(fmtSubmissionDate(r.submitted_at)) + '</span></div>' +
+    (reviewed && r.score ? '<div class="kc-restore-row"><span>Score</span><span>' + escHtml(r.score) + '</span></div>' : '') +
+    (reviewed && r.feedback ? '<div class="kc-restore-row"><span>Feedback</span><span>' + escHtml(r.feedback) + '</span></div>' : '');
+  return '<div class="kc-head"><span class="kc-badge kc-badge-done">✅ Knowledge Check Completed</span></div>' +
+    '<div class="kc-q kc-q-rich">' + (kc.question || "") + '</div>' +
+    '<div class="kc-restore">' + rows + '</div>' +
+    '<div class="kc-actions"><button type="button" class="btn kc-continue" hidden>Continue →</button></div>';
 }
 /* Make each KC a direct child of `rendered`. A KC nested inside wrapper elements
    (common with pasted content) is lifted out by splitting its ancestors: the
@@ -850,7 +1002,13 @@ async function handleAssignmentSubmit(form, teamKey) {
   // Resubmission updates the existing row (no version history built this sprint).
   const existing = currentSubmission(lessonId);
   const sub = (typeof Identity !== "undefined" ? Identity.stamp({}) : {});
-  sub.id = (existing && existing.id) ||
+  // DETERMINISTIC id per employee+lesson → a refresh or a different device upserts
+  // the SAME row (no duplicate assignment submissions), even when the local cache
+  // is empty. Falls back to a random id only if identity is missing.
+  const detId = (ident && ident.employeeId && lessonId)
+    ? ("sub_" + String(ident.employeeId).replace(/[^a-zA-Z0-9_]/g, "").slice(0, 40) + "__" + String(lessonId).replace(/[^a-zA-Z0-9_]/g, "").slice(0, 40))
+    : "";
+  sub.id = (existing && existing.id) || detId ||
     ((typeof SB !== "undefined" && SB.subId) ? SB.subId() : ("s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)));
   sub.academyKey = teamKey;
   sub.moduleId = lesson.moduleId || "";
@@ -881,6 +1039,13 @@ function markLessonCompleted(lessonId, teamKey, btn) {
   if (typeof Track !== "undefined") {
     const lsn = loadLessons().find(l => l.id === lessonId) || {};
     Track.lessonCompleted({ academyKey: teamKey, moduleId: lsn.moduleId || "", lessonId: lessonId });
+  }
+  // Persist "completed" to Supabase (authoritative) so it restores across devices.
+  const ident = (typeof Identity !== "undefined") ? Identity.get() : null;
+  if (ident && ident.employeeId) {
+    const lsn2 = loadLessons().find(l => l.id === lessonId) || {};
+    const ctx = { employee: ident.employeeId, academyKey: lsn2.academyKey || teamKey, moduleId: lsn2.moduleId || "", lessonId: lessonId };
+    persistProgress(ctx, loadCompletedSteps(ctx), { completed: true });
   }
 
   btn.disabled = true;

@@ -305,32 +305,130 @@
     renderDetails(r, key);
   }
 
+  /* ---------- derived helpers (reuse loaded data only — no new query/field) ---------- */
+  function timeAgo(iso) {
+    if (!iso) return NA;
+    var t = new Date(iso).getTime(); if (isNaN(t)) return NA;
+    var mins = Math.max(0, (Date.now() - t) / 60000);
+    if (mins < 1) return "Just now";
+    if (mins < 60) return Math.round(mins) + "m ago";
+    if (mins < 1440) return Math.round(mins / 60) + "h ago";
+    var d = Math.round(mins / 1440);
+    return d + (d === 1 ? " day ago" : " days ago");
+  }
+  function daysSince(iso) { if (!iso) return Infinity; var t = new Date(iso).getTime(); return isNaN(t) ? Infinity : (Date.now() - t) / 86400000; }
+
+  // Summary of ONE employee, computed from the submission/KC rows already loaded
+  // in memory (S.rows) + the loaded course structure (S.lessons). No extra fetch.
+  function employeeStats(r) {
+    var eid = r.employee_id;
+    var mine = S.rows.filter(function (x) { return x.employee_id === eid; });
+    var kcRows = mine.filter(function (x) { return x.source === "Knowledge Check"; });
+    var asgRows = mine.filter(function (x) { return x.source === "Assignment"; })
+      .sort(function (a, b) { return new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0); });
+    var secSet = {}; kcRows.forEach(function (x) { if (x.section_id) secSet[x.section_id] = 1; });
+    var modSet = {}, lesSet = {}; mine.forEach(function (x) { if (x.module_id) modSet[x.module_id] = 1; if (x.lesson_id) lesSet[x.lesson_id] = 1; });
+    var pub = S.lessons.filter(function (l) { return l && l.status === "Published" && l.academyKey === r.academy_key; });
+    var modTotalSet = {}; pub.forEach(function (l) { if (l.moduleId) modTotalSet[l.moduleId] = 1; });
+    var last = mine.reduce(function (m, x) { var t = new Date(x.submitted_at || 0).getTime(); return isNaN(t) ? m : Math.max(m, t); }, 0);
+    return {
+      kc: kcRows.length, asg: asgRows.length,
+      asgStatus: asgRows.length ? statusOf(asgRows[0]) : "Not submitted",
+      sections: Object.keys(secSet).length,
+      modules: Object.keys(modSet).length, moduleTotal: Object.keys(modTotalSet).length,
+      lessons: Object.keys(lesSet).length, lessonTotal: pub.length,
+      lastActivity: last ? new Date(last).toISOString() : ""
+    };
+  }
+  function learningStatus(stats) {
+    if (!stats.lastActivity) return "No activity";
+    var d = daysSince(stats.lastActivity);
+    if (d <= 7) return "Active";
+    if (d <= 30) return "Recently active";
+    return "Inactive";
+  }
+  function miniBar(done, total) {
+    var pct = total ? Math.round((done / total) * 100) : 0;
+    return '<div class="srd-mini"><span style="width:' + Math.max(0, Math.min(100, pct)) + '%"></span></div>';
+  }
+
+  // Training context as an indented Academy → Module → Lesson → Section → task tree.
+  function contextTree(r) {
+    var section = (r.sectionName && r.sectionName !== "—") ? r.sectionName : (r.source === "Assignment" ? "Lesson-level" : "—");
+    var leafTag = r.source === "Assignment" ? "Assignment" : "Knowledge Check";
+    var leafVal = r.taskTitle ? String(r.taskTitle).slice(0, 70) : leafTag;
+    function node(lvl, ico, tag, val, leaf) {
+      return '<div class="srd-tnode' + (leaf ? " is-leaf" : "") + '" style="--lvl:' + lvl + '">' +
+        '<span class="srd-tico" aria-hidden="true">' + ico + '</span>' +
+        '<span class="srd-tbody"><span class="srd-ttag">' + esc(tag) + '</span>' +
+        '<span class="srd-tval" title="' + esc(val) + '">' + esc(val) + '</span></span></div>';
+    }
+    return '<div class="srd-tree">' +
+      node(0, "🎓", "Academy", r.academyName) +
+      node(1, "📦", "Module", r.moduleName) +
+      node(2, "📘", "Lesson", r.lessonName) +
+      node(3, "📑", "Section", section) +
+      node(4, (r.source === "Assignment" ? "📝" : "🧠"), leafTag, leafVal, true) +
+    '</div>';
+  }
+
+  function progressCard(r) {
+    var s = employeeStats(r);
+    var tile = function (label, val, extra) {
+      return '<div class="srd-ptile"><div class="srd-ptile-v">' + val + '</div><div class="srd-ptile-l">' + esc(label) + '</div>' + (extra || "") + '</div>';
+    };
+    return '<div class="srd-card"><h4 class="srd-card-h">Learning Progress</h4>' +
+      '<div class="srd-pgrid">' +
+        tile("Modules", s.modules + (s.moduleTotal ? ' / ' + s.moduleTotal : ''), miniBar(s.modules, s.moduleTotal)) +
+        tile("Lessons", s.lessons + (s.lessonTotal ? ' / ' + s.lessonTotal : ''), miniBar(s.lessons, s.lessonTotal)) +
+        tile("Sections", String(s.sections)) +
+        tile("Knowledge Checks", String(s.kc)) +
+        tile("Assignment", '<span class="srd-ptile-chip">' + (s.asgStatus === "Not submitted" ? '<span class="sr-chip sr-chip-type">Not submitted</span>' : statusChip(s.asgStatus)) + '</span>') +
+        tile("Last Activity", '<span class="srd-ptile-sm">' + esc(timeAgo(s.lastActivity)) + '</span>') +
+      '</div>' +
+      '<p class="srd-note">Summary of this employee’s submitted work in the current academy.</p>' +
+    '</div>';
+  }
+
   function renderDetails(r, key) {
     var st = statusOf(r);
-    var sectionLabel = (r.sectionName && r.sectionName !== "—") ? r.sectionName : (r.source === "Assignment" ? "Lesson-level (Assignment)" : "—");
+    var stats = employeeStats(r);
+    // Professional header band: who + what + when + status.
+    var header =
+      '<div class="srd-header">' +
+        '<span class="sr-avatar srd-header-av" aria-hidden="true">' + esc(initials(r.employee_name)) + '</span>' +
+        '<div class="srd-header-main"><div class="srd-header-name">' + esc(r.employee_name) + '</div>' +
+          '<div class="srd-header-meta">' + esc(r.employee_id || "—") + ' · ' + esc(r.team) + '</div></div>' +
+        '<div class="srd-header-end">' + statusChip(st) + '<div class="srd-header-when">' + esc(fmtDateTime(r.submitted_at)) + '</div></div>' +
+      '</div>';
+
     var scroll =
-      // Card 1 — Employee Information
+      // Card — Employee Information (+ Current Learning Status)
       '<div class="srd-card"><h4 class="srd-card-h">Employee Information</h4>' +
         '<div class="srd-emp"><span class="sr-avatar" aria-hidden="true">' + esc(initials(r.employee_name)) + '</span>' +
           '<div><div class="srd-emp-name">' + esc(r.employee_name) + '</div>' +
           '<div class="srd-emp-meta">' + esc(r.employee_id || "—") + ' · ' + esc(r.team) + '</div></div></div>' +
-        '<div class="srd-kv" style="margin-top:14px">' + kv("Employee ID", r.employee_id || "—") + kv("Team", r.team) + kv("Academy", r.academyName) + '</div>' +
+        '<div class="srd-kv" style="margin-top:16px">' +
+          kv("Employee ID", r.employee_id || "—") + kv("Team", r.team) + kv("Academy", r.academyName) +
+          '<span class="k">Current Status</span><span class="v"><span class="srd-status srd-status-' + (learningStatus(stats) === "Active" ? "on" : (learningStatus(stats) === "Inactive" || learningStatus(stats) === "No activity" ? "off" : "mid")) + '">' + esc(learningStatus(stats)) + '</span></span>' +
+        '</div>' +
       '</div>' +
-      // Card 2 — Training Context (grouped Module → Lesson → Section)
-      '<div class="srd-card"><h4 class="srd-card-h">Training Context</h4>' +
-        '<div class="srd-path">' + pathRow("Module", r.moduleName) + pathRow("Lesson", r.lessonName) + pathRow("Section", sectionLabel) + '</div>' +
-        '<div class="srd-kv">' + kv("Source", r.source) + kv("Submission Type", r.type) + kv("Submitted", fmtDateTime(r.submitted_at)) + '</div>' +
+      // Card — Learning Progress (derived from loaded submissions)
+      progressCard(r) +
+      // Card — Training Context (visual tree)
+      '<div class="srd-card"><h4 class="srd-card-h">Training Context</h4>' + contextTree(r) +
+        '<div class="srd-kv" style="margin-top:14px">' + kv("Submission Type", r.type) + kv("Submitted", fmtDateTime(r.submitted_at)) + '</div>' +
       '</div>' +
-      // Card 3 — Question / Instructions (large readable typography)
+      // Card — Question / Instructions
       '<div class="srd-card"><h4 class="srd-card-h">' + (r.source === "Knowledge Check" ? "Question" : "Assignment") + '</h4>' +
         (r.source === "Knowledge Check"
           ? '<div class="srd-prose">' + esc(r.taskTitle) + '</div>'
           : '<div class="srd-prose"><strong>' + esc(r.taskTitle) + '</strong></div>' +
-            (r.instructions ? '<div class="srd-prose" style="margin-top:10px">' + esc(r.instructions) + '</div>' : '')) +
+            (r.instructions ? '<div class="srd-prose" style="margin-top:12px">' + esc(r.instructions) + '</div>' : '')) +
       '</div>' +
-      // Card 4 — Employee Submission (buttons only)
+      // Card — Employee Submission (buttons only)
       '<div class="srd-card"><h4 class="srd-card-h">Employee Submission · ' + esc(r.type) + '</h4>' + responseBlock(r) + '</div>' +
-      // Card 5 — Review
+      // Card — Review
       '<div class="srd-card srd-review"><h4 class="srd-card-h">Review</h4>' +
         '<label for="srRvStatus">Status</label>' +
         '<select id="srRvStatus">' + ['Pending Review', 'Reviewed', 'Needs Revision'].map(function (o) { return '<option value="' + o + '"' + (o === st ? ' selected' : '') + '>' + o + '</option>'; }).join("") + '</select>' +
@@ -341,6 +439,7 @@
       '</div>';
 
     $("srDetails").innerHTML =
+      header +
       '<div class="srd-scroll">' + scroll + '</div>' +
       '<div class="srd-actions" data-key="' + esc(key) + '">' +
         '<button type="button" class="sr-btn sr-btn-ghost" data-review="revision">Request Revision</button>' +

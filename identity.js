@@ -34,7 +34,7 @@ window.Identity = (function () {
   ];
 
   // Single source of truth for admin-only pages (used by the guard AND the nav).
-  var ADMIN_PAGES = ["content_manager.html", "dashboard.html"];
+  var ADMIN_PAGES = ["content_manager.html", "content_health.html", "dashboard.html", "employee_progress.html", "submission_review.html"];
   var FALLBACK_PAGE = "learning_path.html";
 
   // Team → academy key. A regular employee is locked to their own team's academy.

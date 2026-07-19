@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<!--
+  Content Health — content-creator QA for the selected academy (relocated here
+  from the old "Dashboard" page). Read-only, built from existing localStorage
+  data (academies.js) via dashboard.js — validation logic unchanged.
+  This is a Content Manager section (for content creators), NOT the main dashboard.
+-->
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Content Health · Content Manager</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles.css?v=ia-1" />
+  <script src="identity.js"></script>
+  <!-- Content Health is a content-creator (admin) page — redirect non-admins early. -->
+  <script>(function(){ try{ if (window.Identity && window.Identity.isAdmin && !window.Identity.isAdmin()) location.replace("learning_path.html"); }catch(e){} })();</script>
+</head>
+<body>
+
+  <header class="topbar">
+    <button class="menu-btn" id="menuBtn" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar">☰</button>
+    <span class="topbar-logo">SD</span>
+    <span class="topbar-title">Sales Data — Learning Center</span>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-logo">SD</div>
+        <div class="brand-text"><strong>Sales Data</strong><span>Learning Center</span></div>
+      </div>
+      <nav class="nav" aria-label="Main">
+        <a class="nav-item" href="index.html"><span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h5v-6h4v6h5V9.5"/></svg></span><span class="nav-label">Learning Center</span></a>
+        <a class="nav-item" href="learning_path.html"><span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="16" rx="2"/><path d="M9 5V4.2A1.2 1.2 0 0 1 10.2 3h3.6A1.2 1.2 0 0 1 15 4.2V5"/><path d="M9 11h6"/><path d="M9 15h4"/></svg></span><span class="nav-label">Learning Path</span></a>
+        <a class="nav-item active" href="content_manager.html"><span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/><path d="M8 20V9"/></svg></span><span class="nav-label">Content Manager</span></a>
+        <a class="nav-item" href="employee_progress.html"><span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="nav-label">Employee Progress</span></a>
+        <a class="nav-item" href="submission_review.html"><span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span><span class="nav-label">Submission Review</span></a>
+        <a class="nav-item" href="dashboard.html"><span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M2 20h20"/></svg></span><span class="nav-label">Learning Dashboard</span></a>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="foot-progress"><div class="foot-label">Overall Progress</div><div class="progress-bar"><span style="width:0%"></span></div><div class="foot-percent">0%</div></div>
+      </div>
+    </aside>
+
+    <div class="backdrop" id="backdrop"></div>
+
+    <main class="content">
+      <a class="back-link" href="content_manager.html" aria-label="Back to Content Manager">← Content Manager</a>
+
+      <div class="page-head reveal">
+        <h1>Content Health</h1>
+        <p class="muted" id="dashSubtitle">فحص جودة واكتمال المحتوى للأكاديمية المختارة — للمنشئين فقط.</p>
+      </div>
+
+      <!-- Content Manager section tabs -->
+      <div class="cm-tabs reveal" role="tablist" aria-label="Content Manager sections">
+        <a class="cm-tab" href="content_manager.html" role="tab">Modules</a>
+        <a class="cm-tab" href="content_manager.html#lessons" role="tab">Lessons</a>
+        <span class="cm-tab active" role="tab" aria-current="page" aria-selected="true">Content Health</span>
+      </div>
+
+      <!-- Academy selector -->
+      <div class="dash-toolbar reveal">
+        <label for="dashAcademy" class="dash-toolbar-label">Academy</label>
+        <select id="dashAcademy"></select>
+        <span class="dash-academy-name" id="dashAcademyName"></span>
+      </div>
+
+      <!-- Overview -->
+      <section class="reveal">
+        <h3 class="cm-list-heading">Overview</h3>
+        <div class="dash-stats" id="dashStats"></div>
+      </section>
+
+      <!-- Content completeness -->
+      <section class="reveal">
+        <h3 class="cm-list-heading">Content Completeness</h3>
+        <div class="dash-panel" id="dashCompleteness"></div>
+      </section>
+
+      <!-- Content health warnings (missing KCs / assignments / empty lessons / draft / unpublished) -->
+      <section class="reveal">
+        <h3 class="cm-list-heading">Warnings</h3>
+        <div class="dash-panel" id="dashHealth"></div>
+      </section>
+
+      <!-- Quick actions -->
+      <section class="reveal">
+        <h3 class="cm-list-heading">Quick Actions</h3>
+        <div class="dash-actions" id="dashActions"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="supabase.js"></script>
+  <script src="academies.js"></script>
+  <script src="script.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>

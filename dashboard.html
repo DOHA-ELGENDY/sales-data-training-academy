@@ -1,21 +1,64 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <!--
-  Academy Dashboard — manager summary of the selected academy.
-  Read-only view built entirely from existing localStorage data
-  (academies.js). No backend / no Google Sheets.
+  Learning Dashboard — the real management overview (admin only).
+  Org-wide, LIVE from Supabase, read-only. Content QA moved to
+  Content Manager → Content Health (content_health.html). No business logic here.
 -->
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Academy Dashboard · Sales Data</title>
+  <title>Learning Dashboard · Admin</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=ia-1" />
   <script src="identity.js"></script>
+
+  <!-- Self-contained management-dashboard styles (scoped .ld-*). -->
+  <style>
+    .ld-wrap { --ld-line:#e6e8ee; --ld-soft:#f5f6fa; --ld-ink:#1f2430; --ld-dim:#6b7280;
+      --ld-brand:#2563eb; --ld-brand-soft:#eaf1ff; --ld-ok:#0e9f6e; --ld-prog:#b45309; --ld-warn:#b91c1c;
+      --ld-card:#fff; --ld-shadow:0 1px 2px rgba(20,25,40,.06),0 4px 14px rgba(20,25,40,.05); }
+    @media (prefers-color-scheme: dark) { .ld-wrap { --ld-line:#2a2f3a; --ld-soft:#1b1f28; --ld-ink:#e9ecf2; --ld-dim:#9aa2b1;
+      --ld-brand:#5b8cff; --ld-brand-soft:#1a2540; --ld-ok:#34d399; --ld-prog:#f5b458; --ld-warn:#f87171; --ld-card:#141821; --ld-shadow:0 1px 2px rgba(0,0,0,.3); } }
+    .ld-wrap { color:var(--ld-ink); } .ld-wrap * { box-sizing:border-box; }
+    .ld-sec { margin-bottom:22px; }
+    .ld-sec-h { display:flex; align-items:baseline; gap:10px; margin:0 0 12px; }
+    .ld-sec-h h2 { font-size:16px; font-weight:800; margin:0; letter-spacing:-.01em; }
+    .ld-sec-h .ld-sub { font-size:12.5px; color:var(--ld-dim); }
+    .ld-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
+    .ld-card { background:var(--ld-card); border:1px solid var(--ld-line); border-radius:14px; padding:15px 16px; box-shadow:var(--ld-shadow); display:flex; flex-direction:column; gap:3px; }
+    .ld-card-ico { font-size:18px; } .ld-card-v { font-size:26px; font-weight:800; line-height:1.05; letter-spacing:-.02em; } .ld-card-l { font-size:12px; color:var(--ld-dim); font-weight:600; }
+    .ld-card.is-warn .ld-card-v { color:var(--ld-warn); }
+    .ld-panel { background:var(--ld-card); border:1px solid var(--ld-line); border-radius:16px; box-shadow:var(--ld-shadow); padding:16px 18px; }
+    .ld-bar { position:relative; height:8px; border-radius:999px; background:var(--ld-soft); overflow:hidden; flex:1; }
+    .ld-bar > span { position:absolute; inset:0 auto 0 0; background:linear-gradient(90deg,var(--ld-brand),#7aa2ff); border-radius:999px; }
+    .ld-bar.is-done > span { background:linear-gradient(90deg,var(--ld-ok),#5ad1a4); }
+    .ld-team { padding:11px 0; border-bottom:1px solid var(--ld-line); } .ld-team:last-child { border-bottom:0; }
+    .ld-team-top { display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom:7px; }
+    .ld-team-name { font-weight:700; font-size:14px; } .ld-team-meta { font-size:12px; color:var(--ld-dim); }
+    .ld-team-bar { display:flex; align-items:center; gap:10px; } .ld-team-pct { font-size:12.5px; font-weight:800; min-width:38px; text-align:end; }
+    .ld-att { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--ld-line); } .ld-att:last-child { border-bottom:0; }
+    .ld-att-ico { font-size:17px; width:24px; text-align:center; flex:0 0 auto; }
+    .ld-att-main { flex:1; min-width:0; display:flex; flex-direction:column; }
+    .ld-att-who { font-weight:700; font-size:13.5px; } .ld-att-team { color:var(--ld-dim); font-weight:500; } .ld-att-what { font-size:12.5px; color:var(--ld-dim); }
+    .ld-chip { font-size:11px; font-weight:700; border-radius:999px; padding:3px 10px; white-space:nowrap; }
+    .ld-chip-warn { color:var(--ld-warn); background:rgba(185,28,28,.09); } .ld-chip-prog { color:var(--ld-prog); background:rgba(180,83,9,.1); }
+    .ld-ok { color:var(--ld-ok); font-weight:700; font-size:13.5px; }
+    .ld-feed { display:flex; flex-direction:column; }
+    .ld-feed-item { display:flex; align-items:center; gap:11px; padding:9px 0; border-bottom:1px solid var(--ld-line); } .ld-feed-item:last-child { border-bottom:0; }
+    .ld-avatar { width:30px; height:30px; border-radius:50%; background:var(--ld-brand-soft); color:var(--ld-brand); display:inline-flex; align-items:center; justify-content:center; font-weight:800; font-size:12px; flex:0 0 auto; }
+    .ld-feed-main { flex:1; min-width:0; } .ld-feed-text { font-size:13.5px; } .ld-feed-ctx { color:var(--ld-dim); } .ld-feed-when { font-size:12px; color:var(--ld-dim); white-space:nowrap; }
+    .ld-empty { text-align:center; color:var(--ld-dim); padding:26px 14px; font-size:13.5px; } .ld-empty-ico { display:block; font-size:24px; margin-bottom:6px; opacity:.7; }
+    .ld-skel { height:56px; border-radius:12px; margin-bottom:10px; background:linear-gradient(90deg,#eef1f6 25%,#e2e7ef 37%,#eef1f6 63%); background-size:400% 100%; animation:ldShimmer 1.3s ease-in-out infinite; }
+    @keyframes ldShimmer { 0% { background-position:100% 0; } 100% { background-position:0 0; } }
+    @media (prefers-color-scheme: dark) { .ld-skel { background:linear-gradient(90deg,#1c222d 25%,#252c38 37%,#1c222d 63%); background-size:400% 100%; } }
+    .ld-btn { display:inline-flex; align-items:center; gap:6px; border-radius:9px; border:1px solid var(--ld-line); background:var(--ld-card); color:var(--ld-ink); font-size:13px; font-weight:700; padding:8px 14px; cursor:pointer; }
+    .ld-btn:hover { background:var(--ld-soft); }
+    .ld-head-row { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  </style>
 </head>
 <body>
 
-  <!-- ============ MOBILE TOP BAR ============ -->
   <header class="topbar">
     <button class="menu-btn" id="menuBtn" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar">☰</button>
     <span class="topbar-logo">SD</span>
@@ -23,120 +66,69 @@
   </header>
 
   <div class="layout">
-
-    <!-- ============ SIDEBAR ============ -->
     <aside class="sidebar" id="sidebar">
       <div class="brand">
         <div class="brand-logo">SD</div>
-        <div class="brand-text">
-          <strong>Sales Data</strong>
-          <span>Learning Center</span>
-        </div>
+        <div class="brand-text"><strong>Sales Data</strong><span>Learning Center</span></div>
       </div>
-
       <nav class="nav" aria-label="Main">
-        <a class="nav-item" href="index.html">
-          <span class="nav-ico" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h5v-6h4v6h5V9.5"/></svg>
-          </span>
-          <span class="nav-label">Learning Center</span>
-        </a>
-        <a class="nav-item" href="learning_path.html">
-          <span class="nav-ico" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="16" rx="2"/><path d="M9 5V4.2A1.2 1.2 0 0 1 10.2 3h3.6A1.2 1.2 0 0 1 15 4.2V5"/><path d="M9 11h6"/><path d="M9 15h4"/></svg>
-          </span>
-          <span class="nav-label">Learning Path</span>
-        </a>
-        <a class="nav-item" href="content_manager.html">
-          <span class="nav-ico" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/><path d="M8 20V9"/></svg>
-          </span>
-          <span class="nav-label">Content Manager</span>
-        </a>
-        <a class="nav-item active" href="dashboard.html">
-          <span class="nav-ico" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M2 20h20"/></svg>
-          </span>
-          <span class="nav-label">Dashboard</span>
-        </a>
-        <a class="nav-item" href="employee_progress.html">
-          <span class="nav-ico" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-          </span>
-          <span class="nav-label">Employee Progress</span>
-        </a>
-        <a class="nav-item" href="submission_review.html">
-          <span class="nav-ico" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-          </span>
-          <span class="nav-label">Submission Review</span>
-        </a>
+        <a class="nav-item" href="index.html"><span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h5v-6h4v6h5V9.5"/></svg></span><span class="nav-label">Learning Center</span></a>
+        <a class="nav-item" href="learning_path.html"><span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="16" rx="2"/><path d="M9 5V4.2A1.2 1.2 0 0 1 10.2 3h3.6A1.2 1.2 0 0 1 15 4.2V5"/><path d="M9 11h6"/><path d="M9 15h4"/></svg></span><span class="nav-label">Learning Path</span></a>
+        <a class="nav-item" href="content_manager.html"><span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/><path d="M8 20V9"/></svg></span><span class="nav-label">Content Manager</span></a>
+        <a class="nav-item" href="employee_progress.html"><span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="nav-label">Employee Progress</span></a>
+        <a class="nav-item" href="submission_review.html"><span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span><span class="nav-label">Submission Review</span></a>
+        <a class="nav-item active" href="dashboard.html"><span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M2 20h20"/></svg></span><span class="nav-label">Learning Dashboard</span></a>
       </nav>
-
       <div class="sidebar-foot">
-        <div class="foot-progress">
-          <div class="foot-label">Overall Progress</div>
-          <div class="progress-bar"><span style="width:0%"></span></div>
-          <div class="foot-percent">0%</div>
-        </div>
+        <div class="foot-progress"><div class="foot-label">Admin View</div><div class="foot-percent" id="ldFoot">—</div></div>
       </div>
     </aside>
 
     <div class="backdrop" id="backdrop"></div>
 
-    <!-- ============ MAIN CONTENT ============ -->
     <main class="content">
+      <div class="ld-wrap">
+        <div class="page-head reveal ld-head-row">
+          <div><h1>Learning Dashboard</h1><p class="muted">Live management overview across all teams — admin only.</p></div>
+          <button type="button" class="ld-btn" id="ldRefresh">↻ Refresh</button>
+        </div>
 
-      <a class="back-link" href="content_manager.html" aria-label="Back to Content Manager">← Content Manager</a>
+        <!-- 1. Academy Overview -->
+        <section class="ld-sec reveal">
+          <div class="ld-sec-h"><h2>Academy Overview</h2></div>
+          <div class="ld-cards" id="ldOverview"></div>
+        </section>
 
-      <div class="page-head reveal">
-        <h1>Academy Dashboard</h1>
-        <p class="muted" id="dashSubtitle">ملخص الأكاديمية المختارة — من بيانات الجهاز (localStorage).</p>
+        <!-- 2. Team Progress -->
+        <section class="ld-sec reveal">
+          <div class="ld-sec-h"><h2>Team Progress</h2><span class="ld-sub">Average progress by team</span></div>
+          <div class="ld-panel" id="ldTeams"></div>
+        </section>
+
+        <!-- 3. Attention Required -->
+        <section class="ld-sec reveal">
+          <div class="ld-sec-h"><h2>Attention Required</h2><span class="ld-sub">Inactive employees · pending reviews · failed Knowledge Checks</span></div>
+          <div class="ld-panel" id="ldAttention"></div>
+        </section>
+
+        <!-- 4. Recent Activity -->
+        <section class="ld-sec reveal">
+          <div class="ld-sec-h"><h2>Recent Activity</h2><span class="ld-sub">Newest first</span></div>
+          <div class="ld-panel" id="ldActivity"></div>
+        </section>
+
+        <!-- 5. Learning Analytics -->
+        <section class="ld-sec reveal">
+          <div class="ld-sec-h"><h2>Learning Analytics</h2></div>
+          <div class="ld-cards" id="ldAnalytics"></div>
+        </section>
       </div>
-
-      <!-- Academy selector -->
-      <div class="dash-toolbar reveal">
-        <label for="dashAcademy" class="dash-toolbar-label">Academy</label>
-        <select id="dashAcademy"></select>
-        <span class="dash-academy-name" id="dashAcademyName"></span>
-      </div>
-
-      <!-- Summary stats -->
-      <section class="reveal">
-        <h3 class="cm-list-heading">Overview</h3>
-        <div class="dash-stats" id="dashStats"></div>
-      </section>
-
-      <!-- Content completeness -->
-      <section class="reveal">
-        <h3 class="cm-list-heading">Content Completeness</h3>
-        <div class="dash-panel" id="dashCompleteness"></div>
-      </section>
-
-      <!-- Content health -->
-      <section class="reveal">
-        <h3 class="cm-list-heading">Content Health</h3>
-        <div class="dash-panel" id="dashHealth"></div>
-      </section>
-
-      <!-- Manager review: assignment submissions -->
-      <section class="reveal">
-        <h3 class="cm-list-heading">Assignment Submissions</h3>
-        <div class="dash-panel" id="dashSubmissions"></div>
-      </section>
-
-      <!-- Quick actions -->
-      <section class="reveal">
-        <h3 class="cm-list-heading">Quick Actions</h3>
-        <div class="dash-actions" id="dashActions"></div>
-      </section>
-
     </main>
   </div>
 
   <script src="supabase.js"></script>
   <script src="academies.js"></script>
   <script src="script.js"></script>
-  <script src="dashboard.js"></script>
+  <script src="learning_dashboard.js?v=ia-1"></script>
 </body>
 </html>

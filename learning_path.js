@@ -270,11 +270,17 @@ function showContinueBanner(teamKey) {
     if (!p || !p.current_lesson_id) return;
     if (document.getElementById("lpContinue")) return;
     var head = document.querySelector(".page-head"); if (!head) return;
+    var where = [p.current_module_title, p.current_lesson_title, p.current_section_title].filter(Boolean).map(escHtml).join('  ·  ');
     var b = document.createElement("div");
     b.id = "lpContinue"; b.className = "lp-continue reveal";
-    b.innerHTML = '<div class="lp-continue-text">مرحبًا بعودتك، <strong>' + escHtml(ident.employeeName) + '</strong>' +
-      (p.current_lesson_title ? ' — <span class="lp-continue-where">' + escHtml(p.current_lesson_title) + '</span>' : '') + '</div>' +
-      '<button type="button" class="btn btn-primary" id="lpContinueBtn">Continue Learning →</button>';
+    b.innerHTML =
+      '<div class="lp-continue-ico" aria-hidden="true">▶</div>' +
+      '<div class="lp-continue-main">' +
+        '<div class="lp-continue-kicker">مرحبًا بعودتك، ' + escHtml(ident.employeeName) + ' 👋</div>' +
+        '<div class="lp-continue-title">Continue where you left off</div>' +
+        (where ? '<div class="lp-continue-where">' + where + '</div>' : '') +
+      '</div>' +
+      '<button type="button" class="btn btn-primary lp-continue-btn" id="lpContinueBtn">Continue Learning →</button>';
     head.parentNode.insertBefore(b, head.nextSibling);
     var btn = document.getElementById("lpContinueBtn");
     if (btn) btn.addEventListener("click", function () { openLessonAt(p.current_module_id, p.current_lesson_id); });
@@ -298,6 +304,192 @@ function openLessonAt(moduleId, lessonId) {
     }, 220);
   }, 160);
 }
+
+/* ============================================================
+   PRODUCTION POLISH — employee experience UI only.
+   Welcome screen, Continue card, Lesson/Module Completed screens, skeletons.
+   Purely additive: reads existing data, changes NO learning logic, gating,
+   Knowledge Check / Assignment behaviour, tracking, or the hierarchy.
+   ============================================================ */
+function lpFmtDur(sec) {
+  sec = Number(sec) || 0; if (sec <= 0) return "0m";
+  var h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+  if (h) return h + "h " + m + "m"; if (m) return m + "m"; return Math.round(sec) + "s";
+}
+/* Lightweight per-lesson time (UI convenience, localStorage only — NOT the
+   tracking layer). Accumulates active wall-clock while a lesson is open. */
+var lpTime = (function () {
+  var cur = null;
+  function ident() { return (typeof Identity !== "undefined" && Identity.get) ? (Identity.get() || {}) : {}; }
+  function key(id) { var t = (typeof getSelectedAcademy === "function") ? getSelectedAcademy() : ""; return "lp:time:" + t + ":" + id + ":" + (ident().employeeId || "anon"); }
+  function get(id) { try { return Number(localStorage.getItem(key(id))) || 0; } catch (e) { return 0; } }
+  function add(id, s) { try { localStorage.setItem(key(id), String(get(id) + s)); } catch (e) {} }
+  function flush() { if (cur) { var s = Math.round((Date.now() - cur.at) / 1000); if (s > 0 && s < 7200) add(cur.id, s); cur = null; } }
+  return {
+    open: function (id) { flush(); cur = { id: id, at: Date.now() }; },
+    closeAll: function () { flush(); },
+    seconds: function (id) { return get(id); }
+  };
+})();
+
+/* Shared modal used by welcome + completion screens (no page dimming redesign —
+   a single centered dialog). */
+var lpModal = (function () {
+  function close() { var s = document.getElementById("lpModalScrim"); if (s) s.parentNode.removeChild(s); document.body.style.overflow = ""; }
+  function show(kind, emoji, title, subtitle, bodyHtml, actionsHtml) {
+    close();
+    var s = document.createElement("div"); s.id = "lpModalScrim"; s.className = "lp-modal-scrim";
+    s.innerHTML =
+      '<div class="lp-modal lp-modal-' + kind + '" role="dialog" aria-modal="true" aria-label="' + title + '">' +
+        '<button type="button" class="lp-modal-x" data-lp-modal-close aria-label="Close">✕</button>' +
+        '<div class="lp-modal-emoji" aria-hidden="true">' + emoji + '</div>' +
+        '<h2 class="lp-modal-title">' + title + '</h2>' +
+        (subtitle ? '<p class="lp-modal-sub">' + subtitle + '</p>' : '') +
+        (bodyHtml ? '<div class="lp-modal-body">' + bodyHtml + '</div>' : '') +
+        '<div class="lp-modal-actions">' + actionsHtml + '</div>' +
+      '</div>';
+    document.body.appendChild(s);
+    document.body.style.overflow = "hidden";
+    requestAnimationFrame(function () { s.classList.add("in"); });
+    s.addEventListener("click", function (e) {
+      if (e.target === s) { close(); return; }
+      if (e.target.closest("[data-lp-modal-close]")) { close(); return; }
+      var ws = e.target.closest("[data-lp-welcome-start]");
+      if (ws) { var d = document.getElementById("lpWelcomeDont"); if (!d || d.checked) { try { localStorage.setItem("sdta_welcome_seen", "1"); } catch (e2) {} } close(); return; }
+      var nl = e.target.closest("[data-lp-next-lesson]");
+      if (nl) { var lid = nl.getAttribute("data-lp-next-lesson"), mid = nl.getAttribute("data-lp-next-mod"); close(); if (typeof openLessonAt === "function") openLessonAt(mid, lid); return; }
+    });
+    return s;
+  }
+  return { show: show, close: close };
+})();
+
+function lpStatRow(items) {
+  return '<div class="lp-stats">' + items.map(function (it) {
+    return '<div class="lp-stat"><span class="lp-stat-ico" aria-hidden="true">' + it[0] + '</span>' +
+      '<span class="lp-stat-v">' + escHtml(it[2]) + '</span><span class="lp-stat-l">' + escHtml(it[1]) + '</span></div>';
+  }).join("") + '</div>';
+}
+
+/* First-visit welcome screen with "Don't show again". */
+function maybeShowWelcome() {
+  try { if (localStorage.getItem("sdta_welcome_seen")) return; } catch (e) { return; }
+  var ident = (typeof Identity !== "undefined" && Identity.get) ? Identity.get() : null;
+  var body =
+    '<p class="lp-modal-lead">Welcome to your Learning Center — your training path, one step at a time.</p>' +
+    '<ul class="lp-modal-list">' +
+      '<li>📚 Work through each <strong>Module → Lesson → Section</strong> in order.</li>' +
+      '<li>🧠 Answer the <strong>Knowledge Check</strong> to unlock the next section.</li>' +
+      '<li>📝 Submit the <strong>Lesson Assignment</strong> when you reach it.</li>' +
+      '<li>💾 Your progress is saved automatically — come back anytime and continue.</li>' +
+    '</ul>';
+  var actions =
+    '<label class="lp-modal-check"><input type="checkbox" id="lpWelcomeDont" checked /> Don’t show this again</label>' +
+    '<button type="button" class="btn btn-primary" data-lp-welcome-start>Get Started →</button>';
+  lpModal.show("welcome", "👋", "Welcome to the Learning Center", ident && ident.employeeName ? ("Hi " + escHtml(ident.employeeName) + " 👋") : "", body, actions);
+}
+
+/* Ordered lessons / modules for "next" navigation (display only). */
+function lpModuleNum(moduleId) { var m = loadContent().find(function (x) { return x.id === moduleId; }); return m ? (parseFloat(m.moduleNumber) || 0) : 0; }
+function lpOrderedLessons(teamKey) {
+  return loadLessons().filter(function (l) { return l.academyKey === teamKey && l.status === "Published"; }).slice()
+    .sort(function (a, b) { return (lpModuleNum(a.moduleId) - lpModuleNum(b.moduleId)) || ((parseFloat(a.lessonNumber) || 0) - (parseFloat(b.lessonNumber) || 0)) || ((Number(a.order) || 0) - (Number(b.order) || 0)); });
+}
+function lpNextLesson(lessonId, teamKey) { var arr = lpOrderedLessons(teamKey); var i = arr.findIndex(function (l) { return l.id === lessonId; }); return (i >= 0 && i + 1 < arr.length) ? arr[i + 1] : null; }
+function lpOrderedModules(teamKey) { return loadContent().filter(function (m) { return m.academyKey === teamKey && m.status !== "Draft"; }).slice().sort(function (a, b) { return (parseFloat(a.moduleNumber) || 0) - (parseFloat(b.moduleNumber) || 0); }); }
+function lpNextModule(moduleId, teamKey) {
+  var mods = lpOrderedModules(teamKey); var i = mods.findIndex(function (m) { return m.id === moduleId; });
+  var nm = (i >= 0 && i + 1 < mods.length) ? mods[i + 1] : null; if (!nm) return null;
+  var ls = lpOrderedLessons(teamKey).filter(function (l) { return l.moduleId === nm.id; });
+  return { id: nm.id, moduleTitle: nm.moduleTitle, firstLesson: ls[0] || null };
+}
+function lpScorePct(s) {
+  s = String(s == null ? "" : s).trim(); if (!s) return null;
+  var pm = s.match(/(\d+(?:\.\d+)?)\s*%/); if (pm) return parseFloat(pm[1]);
+  var fm = s.match(/(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/); if (fm) { var d = parseFloat(fm[2]); return d ? (parseFloat(fm[1]) / d * 100) : null; }
+  var n = parseFloat(s); return isNaN(n) ? null : n;
+}
+
+/* Lesson Completed screen (or Module Completed when this finishes the module). */
+function showLessonCompletedScreen(lessonId, teamKey) {
+  try {
+    lpTime.closeAll();
+    var lesson = loadLessons().find(function (l) { return l.id === lessonId; }) || {};
+    var moduleId = lesson.moduleId;
+    var mp = (typeof moduleProgress === "function") ? moduleProgress(teamKey, moduleId) : { done: 0, total: 0 };
+    if (mp.total && mp.done >= mp.total) { showModuleCompletedScreen(moduleId, teamKey); return; }
+
+    var parts = (typeof lessonParts === "function") ? lessonParts(lesson) : [];
+    var kcTotal = parts.filter(function (p) { return p.knowledgeCheck && (p.knowledgeCheck.question || p.knowledgeCheck.type); }).length;
+    var asg = (lesson.assignment && lesson.assignment.status === "Published") ? lesson.assignment : null;
+    var sub = asg && (typeof currentSubmission === "function") ? currentSubmission(lessonId) : null;
+    var asgStatus = !asg ? "No assignment" : (sub ? (sub.status || "Submitted") : "Not submitted");
+    var timeSec = lpTime.seconds(lessonId);
+    var next = lpNextLesson(lessonId, teamKey);
+
+    var stats = lpStatRow([
+      ["🕐", "Time Spent", timeSec ? lpFmtDur(timeSec) : "—"],
+      ["🧠", "Knowledge Checks", kcTotal ? (kcTotal + " / " + kcTotal) : "0"],
+      ["📝", "Assignment", asgStatus]
+    ]);
+    var actions =
+      (next ? '<button type="button" class="btn btn-primary" data-lp-next-lesson="' + escHtml(next.id) + '" data-lp-next-mod="' + escHtml(next.moduleId || "") + '">Continue to Next Lesson →</button>' : '') +
+      '<button type="button" class="btn btn-light" data-lp-modal-close>Back to Learning Path</button>';
+    lpModal.show("done", "🎉", "Lesson Completed", escHtml(lesson.lessonTitle || "Lesson"), stats, actions);
+  } catch (e) {}
+}
+
+/* Module Completed screen. */
+function showModuleCompletedScreen(moduleId, teamKey) {
+  try {
+    var mod = loadContent().find(function (m) { return m.id === moduleId; }) || {};
+    var lessons = loadLessons().filter(function (l) { return l.academyKey === teamKey && l.moduleId === moduleId && l.status === "Published"; });
+    var scores = [], totalSec = 0;
+    lessons.forEach(function (l) {
+      totalSec += lpTime.seconds(l.id);
+      ((typeof lessonParts === "function") ? lessonParts(l) : []).forEach(function (p) {
+        if (p.knowledgeCheck && (typeof kcRestoreFor === "function")) {
+          var r = kcRestoreFor(p.knowledgeCheck.id);
+          if (r) { var pct = lpScorePct(r.score); if (pct == null && r.is_correct != null) pct = r.is_correct ? 100 : 0; if (pct != null) scores.push(pct); }
+        }
+      });
+    });
+    var avg = scores.length ? (Math.round(scores.reduce(function (a, b) { return a + b; }, 0) / scores.length) + "%") : "—";
+    var nextMod = lpNextModule(moduleId, teamKey);
+
+    var stats = lpStatRow([
+      ["📘", "Lessons Completed", String(lessons.length)],
+      ["🎯", "Average Score", avg],
+      ["🕐", "Total Time", totalSec ? lpFmtDur(totalSec) : "—"]
+    ]);
+    var actions =
+      (nextMod && nextMod.firstLesson ? '<button type="button" class="btn btn-primary" data-lp-next-lesson="' + escHtml(nextMod.firstLesson.id) + '" data-lp-next-mod="' + escHtml(nextMod.id) + '">Continue to Next Module →</button>' : '') +
+      '<button type="button" class="btn btn-light" data-lp-modal-close>Back to Learning Path</button>';
+    lpModal.show("module", "🏆", "Module Completed", escHtml(mod.moduleTitle || "Module"), stats, actions);
+  } catch (e) {}
+}
+
+/* Skeleton placeholders shown in the modules area while content loads. */
+function lpShowSkeleton() {
+  var c = document.getElementById("learningPath"); if (!c || c.querySelector(".lp-skeleton")) return;
+  var one = '<div class="lp-skeleton cm-added" aria-hidden="true"><div class="sk-head"><div class="sk-badge"></div><div class="sk-lines"><div class="sk-line sk-lg"></div><div class="sk-line sk-sm"></div></div></div></div>';
+  c.insertAdjacentHTML("beforeend", one + one + one);
+}
+
+/* Additive init hooks (skeleton + lesson timer + welcome). Does not alter the
+   main bootstrap or any flow handler. */
+document.addEventListener("DOMContentLoaded", function () {
+  var c = document.getElementById("learningPath"); if (!c) return;
+  if (!c.querySelector(".level-card")) lpShowSkeleton();
+  c.addEventListener("click", function (e) {
+    var h = e.target.closest("[data-lesson-toggle]"); if (!h) return;
+    var item = h.closest(".lesson-acc-item"); if (!item) return;
+    var id = item.getAttribute("data-lesson-id");
+    setTimeout(function () { if (item.classList.contains("open")) lpTime.open(id); else lpTime.closeAll(); }, 0);
+  });
+  window.addEventListener("pagehide", function () { lpTime.closeAll(); });
+  setTimeout(maybeShowWelcome, 650);
+});
 
 /* ---- Section presentation helpers (display only — no data/model changes) ---- */
 var _lpSectionTmp = document.createElement("div");
@@ -1068,6 +1260,8 @@ function markLessonCompleted(lessonId, teamKey, btn) {
     }
   }
   renderAcademyProgress(teamKey);
+  // Celebration screen (UI only — runs AFTER the existing completion logic).
+  if (typeof showLessonCompletedScreen === "function") showLessonCompletedScreen(lessonId, teamKey);
 }
 
 /* Academy progress summary at the top of the Learning Path. */
